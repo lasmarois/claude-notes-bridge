@@ -113,7 +113,7 @@ public actor MCPServer {
             ],
             [
                 "name": "search_notes",
-                "description": "Search notes by text content",
+                "description": "Search notes by text content. Searches title, snippet (first line), and folder name. Case-insensitive. Use search_content=true to also search full note body (slower). If few results are found, a hint will suggest enabling content search.",
                 "inputSchema": [
                     "type": "object",
                     "properties": [
@@ -124,6 +124,10 @@ public actor MCPServer {
                         "limit": [
                             "type": "integer",
                             "description": "Maximum number of results"
+                        ],
+                        "search_content": [
+                            "type": "boolean",
+                            "description": "If true, also search within note body content (slower but more thorough)"
                         ]
                     ],
                     "required": ["query"]
@@ -384,7 +388,16 @@ public actor MCPServer {
                     throw NotesError.missingParameter("query")
                 }
                 let limit = arguments["limit"] as? Int ?? 20
-                result = try notesDB.searchNotes(query: query, limit: limit)
+                let searchContent = arguments["search_content"] as? Bool ?? false
+                let notes = try notesDB.searchNotes(query: query, limit: limit, searchContent: searchContent)
+
+                // Threshold fallback hint: if few results and content search wasn't used, suggest it
+                let threshold = 5
+                if !searchContent && notes.count < threshold && notes.count < limit {
+                    result = ["notes": notes, "hint": "💡 Only \(notes.count) result(s) found in titles/snippets/folders. Set search_content=true to also search note bodies."]
+                } else {
+                    result = notes
+                }
             case "create_note":
                 guard let title = arguments["title"] as? String else {
                     throw NotesError.missingParameter("title")
@@ -518,6 +531,9 @@ public actor MCPServer {
 
     private func formatResult(_ result: Any) -> String {
         if let notes = result as? [Note] {
+            if notes.isEmpty {
+                return "No notes found."
+            }
             return notes.map { note in
                 """
                 📝 \(note.title)
@@ -526,6 +542,22 @@ public actor MCPServer {
                    Modified: \(note.modifiedAt?.description ?? "Unknown")
                 """
             }.joined(separator: "\n\n")
+        } else if let searchResult = result as? [String: Any],
+                  let notes = searchResult["notes"] as? [Note] {
+            // Search result with hint
+            var output = notes.isEmpty ? "No notes found." : notes.map { note in
+                """
+                📝 \(note.title)
+                   ID: \(note.id)
+                   Folder: \(note.folder ?? "Unknown")
+                   Modified: \(note.modifiedAt?.description ?? "Unknown")
+                """
+            }.joined(separator: "\n\n")
+
+            if let hint = searchResult["hint"] as? String {
+                output += "\n\n\(hint)"
+            }
+            return output
         } else if let note = result as? NoteContent {
             var output = """
             # \(note.title)

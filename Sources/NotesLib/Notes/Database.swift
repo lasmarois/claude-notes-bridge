@@ -153,11 +153,12 @@ public class NotesDatabase {
     }
 
     /// Search notes by content
-    public func searchNotes(query: String, limit: Int = 20) throws -> [Note] {
-        // For now, search by title
-        // TODO: Search within decoded content
+    /// Enhanced search: case-insensitive, searches title + snippet + folder name
+    /// Set searchContent=true to also search decoded note body (slower)
+    public func searchNotes(query: String, limit: Int = 20, searchContent: Bool = false) throws -> [Note] {
         try ensureOpen()
 
+        // Phase 1: Fast search using indexed columns (title, snippet, folder)
         let searchQuery = """
             SELECT
                 n.ZIDENTIFIER as id,
@@ -168,7 +169,11 @@ public class NotesDatabase {
             FROM ZICCLOUDSYNCINGOBJECT n
             LEFT JOIN ZICCLOUDSYNCINGOBJECT f ON n.ZFOLDER = f.Z_PK
             WHERE n.ZTITLE1 IS NOT NULL
-              AND n.ZTITLE1 LIKE '%' || ? || '%'
+              AND (
+                  LOWER(n.ZTITLE1) LIKE '%' || LOWER(?) || '%'
+                  OR LOWER(COALESCE(n.ZSNIPPET, '')) LIKE '%' || LOWER(?) || '%'
+                  OR LOWER(COALESCE(f.ZTITLE2, '')) LIKE '%' || LOWER(?) || '%'
+              )
             ORDER BY n.ZMODIFICATIONDATE1 DESC
             LIMIT ?
             """
@@ -180,10 +185,15 @@ public class NotesDatabase {
         defer { sqlite3_finalize(statement) }
 
         let SQLITE_TRANSIENT_SEARCH = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
+        // Bind query for each OR condition
         sqlite3_bind_text(statement, 1, (query as NSString).utf8String, -1, SQLITE_TRANSIENT_SEARCH)
-        sqlite3_bind_int(statement, 2, Int32(limit))
+        sqlite3_bind_text(statement, 2, (query as NSString).utf8String, -1, SQLITE_TRANSIENT_SEARCH)
+        sqlite3_bind_text(statement, 3, (query as NSString).utf8String, -1, SQLITE_TRANSIENT_SEARCH)
+        sqlite3_bind_int(statement, 4, Int32(limit))
 
         var notes: [Note] = []
+        var foundIds = Set<String>()
+
         while sqlite3_step(statement) == SQLITE_ROW {
             let id = columnString(statement, 0) ?? ""
             let title = columnString(statement, 1) ?? "Untitled"
@@ -191,6 +201,7 @@ public class NotesDatabase {
             let created = columnDate(statement, 3)
             let modified = columnDate(statement, 4)
 
+            foundIds.insert(id)
             notes.append(Note(
                 id: id,
                 title: title,
@@ -200,7 +211,91 @@ public class NotesDatabase {
             ))
         }
 
+        // Phase 2: If searchContent=true and we haven't hit limit, search note bodies
+        if searchContent && notes.count < limit {
+            let contentMatches = try searchNoteContent(query: query, limit: limit - notes.count, excludeIds: foundIds)
+            notes.append(contentsOf: contentMatches)
+        }
+
         return notes
+    }
+
+    /// Search within decoded note content (protobuf bodies)
+    /// This is slower as it requires decoding each note
+    private func searchNoteContent(query: String, limit: Int, excludeIds: Set<String>) throws -> [Note] {
+        // Get all notes not already found, ordered by modification date
+        let allNotesQuery = """
+            SELECT
+                n.ZIDENTIFIER as id,
+                n.ZTITLE1 as title,
+                f.ZTITLE2 as folder,
+                n.ZCREATIONDATE1 as created,
+                n.ZMODIFICATIONDATE1 as modified,
+                n.Z_PK as pk
+            FROM ZICCLOUDSYNCINGOBJECT n
+            LEFT JOIN ZICCLOUDSYNCINGOBJECT f ON n.ZFOLDER = f.Z_PK
+            WHERE n.ZTITLE1 IS NOT NULL
+            ORDER BY n.ZMODIFICATIONDATE1 DESC
+            """
+
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(db, allNotesQuery, -1, &statement, nil) == SQLITE_OK else {
+            throw NotesError.queryFailed(String(cString: sqlite3_errmsg(db)))
+        }
+        defer { sqlite3_finalize(statement) }
+
+        var matches: [Note] = []
+        let lowerQuery = query.lowercased()
+
+        while sqlite3_step(statement) == SQLITE_ROW && matches.count < limit {
+            let id = columnString(statement, 0) ?? ""
+
+            // Skip already found notes
+            if excludeIds.contains(id) { continue }
+
+            let title = columnString(statement, 1) ?? "Untitled"
+            let folder = columnString(statement, 2)
+            let created = columnDate(statement, 3)
+            let modified = columnDate(statement, 4)
+            let pk = sqlite3_column_int64(statement, 5)
+
+            // Decode note content and search
+            if let content = try? getDecodedContent(forNotePK: pk),
+               content.lowercased().contains(lowerQuery) {
+                matches.append(Note(
+                    id: id,
+                    title: title,
+                    folder: folder,
+                    createdAt: created,
+                    modifiedAt: modified
+                ))
+            }
+        }
+
+        return matches
+    }
+
+    /// Get decoded content for a note by its Z_PK
+    private func getDecodedContent(forNotePK pk: Int64) throws -> String? {
+        let contentQuery = "SELECT ZDATA FROM ZICNOTEDATA WHERE ZNOTE = ?"
+
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(db, contentQuery, -1, &statement, nil) == SQLITE_OK else {
+            throw NotesError.queryFailed(String(cString: sqlite3_errmsg(db)))
+        }
+        defer { sqlite3_finalize(statement) }
+
+        sqlite3_bind_int64(statement, 1, pk)
+
+        if sqlite3_step(statement) == SQLITE_ROW {
+            if let blob = sqlite3_column_blob(statement, 0) {
+                let length = sqlite3_column_bytes(statement, 0)
+                let data = Data(bytes: blob, count: Int(length))
+                return try? decoder.decode(data)
+            }
+        }
+
+        return nil
     }
 
     // MARK: - Attachment Operations
