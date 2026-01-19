@@ -164,6 +164,83 @@ class NotesAppleScript {
         _ = try runAppleScript(script)
     }
 
+    // MARK: - Folder Operations
+
+    /// Create a new folder
+    /// - Parameters:
+    ///   - name: The folder name
+    ///   - parentFolder: Optional parent folder name for nested folders
+    /// - Returns: The created folder's name
+    func createFolder(name: String, parentFolder: String? = nil) throws -> String {
+        let script: String
+
+        if let parent = parentFolder {
+            script = """
+            tell application "Notes"
+                tell folder "\(escapeForAppleScript(parent))"
+                    make new folder with properties {name:"\(escapeForAppleScript(name))"}
+                end tell
+                return "\(escapeForAppleScript(name))"
+            end tell
+            """
+        } else {
+            script = """
+            tell application "Notes"
+                make new folder with properties {name:"\(escapeForAppleScript(name))"}
+                return "\(escapeForAppleScript(name))"
+            end tell
+            """
+        }
+
+        let output = try runAppleScript(script)
+        return output.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// Move a note to a different folder
+    /// - Parameters:
+    ///   - noteId: The note ID (x-coredata URL or UUID)
+    ///   - folderName: The target folder name
+    func moveNote(noteId: String, toFolder folderName: String) throws {
+        let resolvedId = try resolveNoteId(noteId)
+
+        let script = """
+        tell application "Notes"
+            set theNote to note id "\(resolvedId)"
+            set targetFolder to folder "\(escapeForAppleScript(folderName))"
+            move theNote to targetFolder
+        end tell
+        """
+
+        _ = try runAppleScript(script)
+    }
+
+    /// Rename a folder
+    /// - Parameters:
+    ///   - oldName: Current folder name
+    ///   - newName: New folder name
+    func renameFolder(from oldName: String, to newName: String) throws {
+        let script = """
+        tell application "Notes"
+            set theFolder to folder "\(escapeForAppleScript(oldName))"
+            set name of theFolder to "\(escapeForAppleScript(newName))"
+        end tell
+        """
+
+        _ = try runAppleScript(script)
+    }
+
+    /// Delete a folder (notes will be moved to Recently Deleted)
+    /// - Parameter name: The folder name to delete
+    func deleteFolder(name: String) throws {
+        let script = """
+        tell application "Notes"
+            delete folder "\(escapeForAppleScript(name))"
+        end tell
+        """
+
+        _ = try runAppleScript(script)
+    }
+
     // MARK: - Query Helpers
 
     /// Find a note's x-coredata ID by UUID (searches via AppleScript)

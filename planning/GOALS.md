@@ -10,6 +10,7 @@ Single source of truth for project goals. Only ONE goal can be `in_progress` at 
 | goal-2 | Define flexible roadmap and integrate into project memory | `completed` |
 | goal-3 | M1: Read-Only MVP (Swift scaffolding, SQLite, protobuf, MCP) | `completed` |
 | goal-4 | M3+M4: Full CRUD via AppleScript (create, update, delete notes) | `completed` |
+| goal-5 | M5: Folder operations (create, move, rename, delete folders) | `completed` |
 
 ## Status Legend
 

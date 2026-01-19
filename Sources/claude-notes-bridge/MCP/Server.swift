@@ -189,6 +189,74 @@ actor MCPServer {
                     ],
                     "required": ["id"]
                 ]
+            ],
+            [
+                "name": "create_folder",
+                "description": "Create a new folder in Apple Notes",
+                "inputSchema": [
+                    "type": "object",
+                    "properties": [
+                        "name": [
+                            "type": "string",
+                            "description": "The folder name"
+                        ],
+                        "parent": [
+                            "type": "string",
+                            "description": "Optional parent folder name for nested folders"
+                        ]
+                    ],
+                    "required": ["name"]
+                ]
+            ],
+            [
+                "name": "move_note",
+                "description": "Move a note to a different folder",
+                "inputSchema": [
+                    "type": "object",
+                    "properties": [
+                        "id": [
+                            "type": "string",
+                            "description": "The note ID (UUID or x-coredata URL)"
+                        ],
+                        "folder": [
+                            "type": "string",
+                            "description": "Target folder name"
+                        ]
+                    ],
+                    "required": ["id", "folder"]
+                ]
+            ],
+            [
+                "name": "rename_folder",
+                "description": "Rename an existing folder",
+                "inputSchema": [
+                    "type": "object",
+                    "properties": [
+                        "old_name": [
+                            "type": "string",
+                            "description": "Current folder name"
+                        ],
+                        "new_name": [
+                            "type": "string",
+                            "description": "New folder name"
+                        ]
+                    ],
+                    "required": ["old_name", "new_name"]
+                ]
+            ],
+            [
+                "name": "delete_folder",
+                "description": "Delete a folder (notes inside will be moved to Recently Deleted)",
+                "inputSchema": [
+                    "type": "object",
+                    "properties": [
+                        "name": [
+                            "type": "string",
+                            "description": "The folder name to delete"
+                        ]
+                    ],
+                    "required": ["name"]
+                ]
             ]
         ]
 
@@ -262,6 +330,37 @@ actor MCPServer {
             case "list_folders":
                 let folders = try notesDB.listFolders()
                 result = folders.map { ["name": $0.name] }
+            case "create_folder":
+                guard let name = arguments["name"] as? String else {
+                    throw NotesError.missingParameter("name")
+                }
+                let parent = arguments["parent"] as? String
+                let folderName = try notesAS.createFolder(name: name, parentFolder: parent)
+                result = ["name": folderName, "created": true, "parent": parent as Any]
+            case "move_note":
+                guard let id = arguments["id"] as? String else {
+                    throw NotesError.missingParameter("id")
+                }
+                guard let folder = arguments["folder"] as? String else {
+                    throw NotesError.missingParameter("folder")
+                }
+                try notesAS.moveNote(noteId: id, toFolder: folder)
+                result = ["id": id, "moved": true, "folder": folder]
+            case "rename_folder":
+                guard let oldName = arguments["old_name"] as? String else {
+                    throw NotesError.missingParameter("old_name")
+                }
+                guard let newName = arguments["new_name"] as? String else {
+                    throw NotesError.missingParameter("new_name")
+                }
+                try notesAS.renameFolder(from: oldName, to: newName)
+                result = ["old_name": oldName, "new_name": newName, "renamed": true]
+            case "delete_folder":
+                guard let name = arguments["name"] as? String else {
+                    throw NotesError.missingParameter("name")
+                }
+                try notesAS.deleteFolder(name: name)
+                result = ["name": name, "deleted": true]
             default:
                 return JSONRPCResponse(
                     jsonrpc: "2.0",
@@ -318,37 +417,84 @@ actor MCPServer {
             Created: \(note.createdAt?.description ?? "Unknown")
             Modified: \(note.modifiedAt?.description ?? "Unknown")
             """
-        } else if let actionResult = result as? [String: Any],
-                  let id = actionResult["id"] as? String {
-            // Handle create, update, delete results
-            if let title = actionResult["title"] as? String {
-                // Create result
-                let folder = actionResult["folder"] as? String ?? "Notes"
-                return """
-                ✅ Note created successfully!
+        } else if let actionResult = result as? [String: Any] {
+            // Handle various action results
+            if let id = actionResult["id"] as? String {
+                // Note operations
+                if let title = actionResult["title"] as? String {
+                    // Create note result
+                    let folder = actionResult["folder"] as? String ?? "Notes"
+                    return """
+                    ✅ Note created successfully!
 
-                Title: \(title)
-                ID: \(id)
-                Folder: \(folder)
-                """
-            } else if actionResult["updated"] as? Bool == true {
-                // Update result
-                return """
-                ✅ Note updated successfully!
+                    Title: \(title)
+                    ID: \(id)
+                    Folder: \(folder)
+                    """
+                } else if actionResult["updated"] as? Bool == true {
+                    // Update note result
+                    return """
+                    ✅ Note updated successfully!
 
-                ID: \(id)
-                """
-            } else if actionResult["deleted"] as? Bool == true {
-                // Delete result
-                return """
-                ✅ Note deleted successfully!
+                    ID: \(id)
+                    """
+                } else if actionResult["deleted"] as? Bool == true {
+                    // Delete note result
+                    return """
+                    ✅ Note deleted successfully!
 
-                ID: \(id)
-                Note moved to Recently Deleted.
+                    ID: \(id)
+                    Note moved to Recently Deleted.
+                    """
+                } else if actionResult["moved"] as? Bool == true {
+                    // Move note result
+                    let folder = actionResult["folder"] as? String ?? "Unknown"
+                    return """
+                    ✅ Note moved successfully!
+
+                    ID: \(id)
+                    New folder: \(folder)
+                    """
+                }
+            } else if let name = actionResult["name"] as? String {
+                // Folder operations
+                if actionResult["created"] as? Bool == true {
+                    // Create folder result
+                    if let parent = actionResult["parent"] as? String {
+                        return """
+                        ✅ Folder created successfully!
+
+                        Name: \(name)
+                        Parent: \(parent)
+                        """
+                    } else {
+                        return """
+                        ✅ Folder created successfully!
+
+                        Name: \(name)
+                        """
+                    }
+                } else if actionResult["deleted"] as? Bool == true {
+                    // Delete folder result
+                    return """
+                    ✅ Folder deleted successfully!
+
+                    Name: \(name)
+                    Notes moved to Recently Deleted.
+                    """
+                }
+            } else if actionResult["renamed"] as? Bool == true {
+                // Rename folder result
+                let oldName = actionResult["old_name"] as? String ?? "Unknown"
+                let newName = actionResult["new_name"] as? String ?? "Unknown"
+                return """
+                ✅ Folder renamed successfully!
+
+                From: \(oldName)
+                To: \(newName)
                 """
-            } else {
-                return String(describing: result)
             }
+            return String(describing: result)
         } else if let folders = result as? [[String: String]] {
             let folderList = folders.map { "📁 \($0["name"] ?? "Unknown")" }.joined(separator: "\n")
             return "Available folders:\n\n\(folderList)"

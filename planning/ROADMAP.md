@@ -47,7 +47,13 @@
 ### M4: Update & Delete `[committed]` ✅
 - [x] Tool: `update_note` via AppleScript
 - [x] Tool: `delete_note` via AppleScript
-- [ ] Folder operations (create, move) → deferred to M5
+
+### M5: Folder Operations `[committed]` ✅
+- [x] Tool: `create_folder` via AppleScript
+- [x] Tool: `move_note` via AppleScript
+- [x] Tool: `rename_folder` via AppleScript
+- [x] Tool: `delete_folder` via AppleScript
+- [x] Nested folders supported
 
 ### Open Questions (H2) — ANSWERED
 - ~~Can we write to iCloud-synced notes without breaking sync?~~ → **YES, via AppleScript** (handles CloudKit automatically)
@@ -111,3 +117,4 @@ The original goal-1 research incorrectly stated AppleScript couldn't update/dele
 | 2026-01-18 | M1 + M2 complete: Read-only MCP server working |
 | 2026-01-18 | **PIVOT:** M3 approach changed from DB writes to AppleScript. Direct DB writes create invisible notes (missing CloudKit metadata). AppleScript confirmed to support full CRUD (corrects goal-1 error). See goal-4/findings.md |
 | 2026-01-18 | **M3 + M4 complete:** Full CRUD via hybrid architecture (DB reads + AppleScript writes). Tools: create_note, update_note, delete_note |
+| 2026-01-19 | **M5 complete:** Folder operations. Tools: create_folder, move_note, rename_folder, delete_folder |
