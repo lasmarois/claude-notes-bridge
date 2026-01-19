@@ -9,6 +9,16 @@ public struct Note {
     public let folder: String?
     public let createdAt: Date?
     public let modifiedAt: Date?
+    public var matchSnippet: String?  // Search context snippet with highlighted matches
+
+    public init(id: String, title: String, folder: String?, createdAt: Date?, modifiedAt: Date?, matchSnippet: String? = nil) {
+        self.id = id
+        self.title = title
+        self.folder = folder
+        self.createdAt = createdAt
+        self.modifiedAt = modifiedAt
+        self.matchSnippet = matchSnippet
+    }
 }
 
 /// Full note content for read operations

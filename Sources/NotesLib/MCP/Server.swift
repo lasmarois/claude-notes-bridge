@@ -597,23 +597,31 @@ public actor MCPServer {
                 return "No notes found."
             }
             return notes.map { note in
-                """
+                var result = """
                 📝 \(note.title)
                    ID: \(note.id)
                    Folder: \(note.folder ?? "Unknown")
                    Modified: \(note.modifiedAt?.description ?? "Unknown")
                 """
+                if let snippet = note.matchSnippet {
+                    result += "\n   Match: \(snippet)"
+                }
+                return result
             }.joined(separator: "\n\n")
         } else if let searchResult = result as? [String: Any],
                   let notes = searchResult["notes"] as? [Note] {
             // Search result with hint
             var output = notes.isEmpty ? "No notes found." : notes.map { note in
-                """
+                var result = """
                 📝 \(note.title)
                    ID: \(note.id)
                    Folder: \(note.folder ?? "Unknown")
                    Modified: \(note.modifiedAt?.description ?? "Unknown")
                 """
+                if let snippet = note.matchSnippet {
+                    result += "\n   Match: \(snippet)"
+                }
+                return result
             }.joined(separator: "\n\n")
 
             if let hint = searchResult["hint"] as? String {

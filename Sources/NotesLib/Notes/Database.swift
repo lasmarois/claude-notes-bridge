@@ -152,6 +152,65 @@ public class NotesDatabase {
         return noteContent
     }
 
+    // MARK: - Snippet Extraction
+
+    /// Extract a snippet around the first match with highlighted terms
+    /// - Parameters:
+    ///   - text: The full text to extract from
+    ///   - terms: Search terms to find and highlight
+    ///   - windowSize: Characters before/after match to include (default 40)
+    /// - Returns: Snippet with **highlighted** terms, or nil if no match
+    private func extractSnippet(from text: String, terms: [String], windowSize: Int = 40) -> String? {
+        let lowerText = text.lowercased()
+
+        // Find the first matching term and its position
+        var firstMatchPos: String.Index? = nil
+        var matchedTerm: String? = nil
+
+        for term in terms {
+            if let range = lowerText.range(of: term.lowercased()) {
+                if firstMatchPos == nil || range.lowerBound < firstMatchPos! {
+                    firstMatchPos = range.lowerBound
+                    matchedTerm = term
+                }
+            }
+        }
+
+        guard let matchPos = firstMatchPos, let _ = matchedTerm else {
+            return nil
+        }
+
+        // Calculate snippet window
+        let matchDistance = lowerText.distance(from: lowerText.startIndex, to: matchPos)
+        let startOffset = max(0, matchDistance - windowSize)
+        let endOffset = min(text.count, matchDistance + windowSize + 20)
+
+        let startIndex = text.index(text.startIndex, offsetBy: startOffset)
+        let endIndex = text.index(text.startIndex, offsetBy: endOffset)
+
+        var snippet = String(text[startIndex..<endIndex])
+
+        // Add ellipsis if truncated
+        if startOffset > 0 { snippet = "..." + snippet }
+        if endOffset < text.count { snippet = snippet + "..." }
+
+        // Highlight all matching terms with **bold**
+        for term in terms {
+            // Case-insensitive replacement with highlight markers
+            let pattern = "(?i)" + NSRegularExpression.escapedPattern(for: term)
+            if let regex = try? NSRegularExpression(pattern: pattern) {
+                let range = NSRange(snippet.startIndex..., in: snippet)
+                snippet = regex.stringByReplacingMatches(in: snippet, range: range, withTemplate: "**$0**")
+            }
+        }
+
+        // Clean up: collapse whitespace and newlines
+        snippet = snippet.replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        return snippet
+    }
+
     // MARK: - Fuzzy Matching
 
     /// Calculate Levenshtein distance between two strings
@@ -308,7 +367,8 @@ public class NotesDatabase {
                 n.ZTITLE1 as title,
                 f.ZTITLE2 as folder,
                 n.ZCREATIONDATE1 as created,
-                n.ZMODIFICATIONDATE1 as modified
+                n.ZMODIFICATIONDATE1 as modified,
+                n.ZSNIPPET as noteSnippet
             FROM ZICCLOUDSYNCINGOBJECT n
             LEFT JOIN ZICCLOUDSYNCINGOBJECT f ON n.ZFOLDER = f.Z_PK
             WHERE n.ZTITLE1 IS NOT NULL
@@ -365,6 +425,11 @@ public class NotesDatabase {
             let folder = columnString(statement, 2)
             let created = columnDate(statement, 3)
             let modified = columnDate(statement, 4)
+            let noteSnippet = columnString(statement, 5)
+
+            // Generate match snippet from title, snippet, or folder
+            let searchableText = title + " | " + (noteSnippet ?? "") + " | " + (folder ?? "")
+            let matchSnippet = extractSnippet(from: searchableText, terms: terms)
 
             foundIds.insert(id)
             notes.append(Note(
@@ -372,7 +437,8 @@ public class NotesDatabase {
                 title: title,
                 folder: folder,
                 createdAt: created,
-                modifiedAt: modified
+                modifiedAt: modified,
+                matchSnippet: matchSnippet
             ))
         }
 
@@ -430,19 +496,23 @@ public class NotesDatabase {
             let modified = columnDate(statement, 4)
 
             // Combine title and folder for fuzzy matching
-            let searchableText = title + " " + (folder ?? "")
+            let searchableText = title + " | " + (folder ?? "")
 
             // Check if all/any terms fuzzy-match
             let termMatches = terms.map { textContainsFuzzyMatch(searchableText, query: $0) }
             let matchesQuery = isAndQuery ? termMatches.allSatisfy { $0 } : termMatches.contains(true)
 
             if matchesQuery {
+                // Generate snippet with fuzzy-matched terms highlighted
+                let matchSnippet = extractSnippet(from: searchableText, terms: terms)
+
                 matches.append(Note(
                     id: id,
                     title: title,
                     folder: folder,
                     createdAt: created,
-                    modifiedAt: modified
+                    modifiedAt: modified,
+                    matchSnippet: matchSnippet
                 ))
             }
         }
@@ -496,12 +566,16 @@ public class NotesDatabase {
                 let matches_query = isAndQuery ? termMatches.allSatisfy { $0 } : termMatches.contains(true)
 
                 if matches_query {
+                    // Extract snippet from content with highlighted terms
+                    let matchSnippet = extractSnippet(from: content, terms: terms, windowSize: 60)
+
                     matches.append(Note(
                         id: id,
                         title: title,
                         folder: folder,
                         createdAt: created,
-                        modifiedAt: modified
+                        modifiedAt: modified,
+                        matchSnippet: matchSnippet
                     ))
                 }
             }
