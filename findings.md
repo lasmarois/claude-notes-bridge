@@ -147,3 +147,83 @@ com.apple.notes.inlinetextattachment.link     - Links (including note-to-note)
 - **Cannot create hashtags** via AppleScript (writes as plain text)
 - **Cannot create links** via AppleScript (strips href)
 - Both features are **read-only**
+
+---
+
+## Markdown-to-HTML Conversion (2026-01-19)
+
+### Implementation
+Added full markdown-to-HTML conversion for `create_note` and `update_note`:
+
+| Markdown | HTML Output |
+|----------|-------------|
+| `# Header` | `<h1><b><span style="font-size: 24px">Header</span></b></h1>` |
+| `## Header` | `<b><span style="font-size: 20px">Header</span></b>` |
+| `### Header` | `<b><span style="font-size: 18px">Header</span></b>` |
+| `**bold**` | `<b>bold</b>` |
+| `*italic*` | `<i>italic</i>` |
+| `~~strike~~` | `<strike>strike</strike>` |
+| `` `code` `` | `<font face="Menlo-Regular" color="#c7254e">code</font>` |
+| ` ```code``` ` | `<font face="Menlo-Regular"><tt>code</tt></font>` |
+| `- item` | `• item` |
+| `> quote` | `<font color="#888888">▎ quote</font>` |
+
+### Commits
+```
+d606dd3 Fix duplicate title and finalize markdown support
+1ba21e8 Add full markdown to HTML conversion for notes
+2946e62 Add hashtag and note-link reading support (M6.5)
+```
+
+---
+
+## Native Styles Investigation (2026-01-19)
+
+### Problem
+When writing notes via protobuf encoder with `styleType` values, only **Monospaced (4)** is detected by Notes.app Format menu. Title/Heading/Subheading appear visually correct but are detected as "Body".
+
+### Attempted Solution
+Added `native` parameter to `create_note` to use protobuf encoder with style types:
+- `styleType = 0`: Body
+- `styleType = 1`: Title
+- `styleType = 2`: Heading
+- `styleType = 3`: Subheading
+- `styleType = 4`: Monospaced ✅ (works)
+- `styleType = 100`: Checkbox
+- `styleType = 101`: Checked checkbox
+
+### Analysis of Native Notes
+Compared our protobuf output with native Notes.app output:
+
+| Aspect | Our Encoder | Native Notes.app |
+|--------|-------------|------------------|
+| Attribute runs | ~13 runs | ~263 runs |
+| Default styleType | Uses 1,2,3 for headers | Uses **-1** as default |
+| Title line | styleType=1 | styleType=**0** |
+| Field for runs | Field 5 | Field 3 |
+| Run metadata | Basic | Has `unknown_identifier` (timestamp-like) |
+
+### Hypothesis
+The paragraph-level Title/Heading/Subheading styles may be:
+1. Stored in a different protobuf field (Field 3 vs Field 5)
+2. Require additional metadata (`unknown_identifier`)
+3. Use a different attribute encoding entirely
+
+### Conclusion: Native Styles Not Achievable
+
+**Root Cause Identified:**
+- AppleScript HTML (`<h1>`, `<h2>`) → Sets `font.point_size` + `font_weight` (visual only)
+- Notes.app UI → Sets `paragraph_style.style_type` (semantic)
+- Format menu reads `style_type`, not visual formatting
+
+**Why Monospaced Works:**
+Notes.app maps `font.font_name = "Menlo"` or `"Courier"` to `style_type=4` automatically.
+
+**Approaches Tested:**
+1. ❌ Direct protobuf encoder with style_type=1/2/3 - CloudKit sync issues
+2. ❌ Hybrid (AppleScript create + ZDATA update) - Styles not recognized
+3. ✅ AppleScript HTML - Visual formatting works, but detected as "Body"
+
+**Decision:** Accept this as a platform limitation. Native Title/Heading/Subheading styles cannot be set programmatically. Visual formatting via markdown-to-HTML is sufficient for most use cases.
+
+**Future Research:** Investigate how Notes.app's Format menu applies styles - may require private APIs or accessibility hooks.

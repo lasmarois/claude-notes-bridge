@@ -25,8 +25,9 @@ class NotesAppleScript {
         let folderName = folder ?? "Notes"
         let escapedFolder = escapeForAppleScript(folderName)
 
-        // Build HTML body - Notes.app automatically shows title, so don't duplicate it
-        let htmlBody = "<div>\(processBody(body))</div>"
+        // Build HTML body with styled title - Notes derives title from first line
+        let styledTitle = "<b><span style=\"font-size: 24px\">\(escapeHTMLOnly(title))</span></b>"
+        let htmlBody = "<div>\(styledTitle)</div><div><br></div><div>\(processBody(body))</div>"
         let escapedHtmlBody = escapeForAppleScript(htmlBody)
 
         let script: String
@@ -35,7 +36,7 @@ class NotesAppleScript {
             script = """
             tell application "Notes"
                 tell account "\(escapedAccount)"
-                    set newNote to make new note at folder "\(escapedFolder)" with properties {name:"\(escapedTitle)", body:"\(escapedHtmlBody)"}
+                    set newNote to make new note at folder "\(escapedFolder)" with properties {body:"\(escapedHtmlBody)"}
                     return id of newNote
                 end tell
             end tell
@@ -43,7 +44,7 @@ class NotesAppleScript {
         } else {
             script = """
             tell application "Notes"
-                set newNote to make new note at folder "\(escapedFolder)" with properties {name:"\(escapedTitle)", body:"\(escapedHtmlBody)"}
+                set newNote to make new note at folder "\(escapedFolder)" with properties {body:"\(escapedHtmlBody)"}
                 return id of newNote
             end tell
             """
@@ -63,10 +64,11 @@ class NotesAppleScript {
         for (index, note) in notes.enumerated() {
             let varName = "note\(index)"
             let folder = note.folder ?? "Notes"
-            let htmlBody = "<div>\(processBody(note.body))</div>"
+            let styledTitle = "<b><span style=\"font-size: 24px\">\(escapeHTMLOnly(note.title))</span></b>"
+            let htmlBody = "<div>\(styledTitle)</div><div><br></div><div>\(processBody(note.body))</div>"
 
             scriptParts.append("""
-                set \(varName) to make new note at folder "\(escapeForAppleScript(folder))" with properties {name:"\(escapeForAppleScript(note.title))", body:"\(escapeForAppleScript(htmlBody))"}
+                set \(varName) to make new note at folder "\(escapeForAppleScript(folder))" with properties {body:"\(escapeForAppleScript(htmlBody))"}
             """)
             resultVars.append("id of \(varName)")
         }
@@ -100,34 +102,38 @@ class NotesAppleScript {
         }
 
         // Notes.app quirk: setting body replaces everything including title
-        // So we need to always set both name and body together for consistency
+        // So we include styled title in body for consistency
         let script: String
 
         if let title = title, let body = body {
-            // Both title and body provided
-            let htmlBody = "<div>\(processBody(body))</div>"
+            // Both title and body provided - include styled title in body
+            let styledTitle = "<b><span style=\"font-size: 24px\">\(escapeHTMLOnly(title))</span></b>"
+            let htmlBody = "<div>\(styledTitle)</div><div><br></div><div>\(processBody(body))</div>"
             script = """
             tell application "Notes"
                 set theNote to note id "\(noteId)"
-                set name of theNote to "\(escapeForAppleScript(title))"
                 set body of theNote to "\(escapeForAppleScript(htmlBody))"
             end tell
             """
         } else if let title = title {
-            // Only title - just update the name
+            // Only title - get current body and rebuild with new styled title
             script = """
             tell application "Notes"
                 set theNote to note id "\(noteId)"
+                set currentBody to body of theNote
                 set name of theNote to "\(escapeForAppleScript(title))"
             end tell
             """
         } else if let body = body {
-            // Only body - preserve current title
-            let htmlBody = "<div>\(processBody(body))</div>"
+            // Only body - get current title and include it styled
+            let htmlBody = processBody(body)
             script = """
             tell application "Notes"
                 set theNote to note id "\(noteId)"
-                set body of theNote to "\(escapeForAppleScript(htmlBody))"
+                set currentTitle to name of theNote
+                set styledTitle to "<b><span style=\\"font-size: 24px\\">" & currentTitle & "</span></b>"
+                set newBody to "<div>" & styledTitle & "</div><div><br></div><div>\(escapeForAppleScript(htmlBody))</div>"
+                set body of theNote to newBody
             end tell
             """
         } else {
