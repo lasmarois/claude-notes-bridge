@@ -4,7 +4,7 @@ import PackageDescription
 let package = Package(
     name: "claude-notes-bridge",
     platforms: [
-        .macOS(.v13)  // Required for SimilaritySearchKit
+        .macOS(.v12)
     ],
     products: [
         .executable(name: "claude-notes-bridge", targets: ["claude-notes-bridge"]),
@@ -13,19 +13,22 @@ let package = Package(
     ],
     dependencies: [
         .package(url: "https://github.com/apple/swift-protobuf.git", from: "1.25.0"),
-        .package(url: "https://github.com/apple/swift-testing.git", branch: "main"),
-        .package(url: "https://github.com/ZachNagengast/similarity-search-kit.git", from: "0.0.1")
+        .package(url: "https://github.com/apple/swift-testing.git", branch: "main")
+        // TODO: Re-enable when Core ML model generation is fixed
+        // .package(url: "https://github.com/ZachNagengast/similarity-search-kit.git", from: "0.0.1")
     ],
     targets: [
         // Core library with all the logic
         .target(
             name: "NotesLib",
             dependencies: [
-                .product(name: "SwiftProtobuf", package: "swift-protobuf"),
-                .product(name: "SimilaritySearchKit", package: "similarity-search-kit"),
-                .product(name: "SimilaritySearchKitMiniLMAll", package: "similarity-search-kit")
+                .product(name: "SwiftProtobuf", package: "swift-protobuf")
+                // TODO: Re-enable when Core ML model generation is fixed
+                // .product(name: "SimilaritySearchKit", package: "similarity-search-kit"),
+                // .product(name: "SimilaritySearchKitMiniLMAll", package: "similarity-search-kit")
             ],
             path: "Sources/NotesLib",
+            exclude: ["Search/SemanticSearch.swift"],
             linkerSettings: [
                 .linkedLibrary("sqlite3")
             ]

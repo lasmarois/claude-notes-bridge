@@ -4,11 +4,14 @@ import Foundation
 public actor MCPServer {
     private let notesDB: NotesDatabase
     private let notesAS: NotesAppleScript
+    // TODO: Re-enable when SimilaritySearchKit Core ML issue is fixed
+    // private let semanticSearch: SemanticSearch
     private var initialized = false
 
     public init() {
         self.notesDB = NotesDatabase()
         self.notesAS = NotesAppleScript()
+        // self.semanticSearch = SemanticSearch(notesDB: notesDB)
     }
 
     /// Main run loop - reads JSON-RPC requests from stdin, writes responses to stdout
@@ -113,7 +116,7 @@ public actor MCPServer {
             ],
             [
                 "name": "search_notes",
-                "description": "Search notes by text content. Searches title, snippet (first line), and folder name. Case-insensitive. Use search_content=true to also search full note body (slower). If few results are found, a hint will suggest enabling content search.",
+                "description": "Search notes by text content. Searches title, snippet (first line), and folder name. Case-insensitive. Supports multi-term: 'term1 AND term2' or 'term1 OR term2'. Options: search_content (bodies), fuzzy (typo tolerance), folder/date filters.",
                 "inputSchema": [
                     "type": "object",
                     "properties": [
@@ -128,6 +131,30 @@ public actor MCPServer {
                         "search_content": [
                             "type": "boolean",
                             "description": "If true, also search within note body content (slower but more thorough)"
+                        ],
+                        "fuzzy": [
+                            "type": "boolean",
+                            "description": "If true, enable typo-tolerant fuzzy matching (e.g., 'kubctl' finds 'kubectl')"
+                        ],
+                        "folder": [
+                            "type": "string",
+                            "description": "Filter by folder name (exact match, case-insensitive)"
+                        ],
+                        "modified_after": [
+                            "type": "string",
+                            "description": "Filter: modified after this date (ISO 8601, e.g., '2024-01-01')"
+                        ],
+                        "modified_before": [
+                            "type": "string",
+                            "description": "Filter: modified before this date (ISO 8601)"
+                        ],
+                        "created_after": [
+                            "type": "string",
+                            "description": "Filter: created after this date (ISO 8601)"
+                        ],
+                        "created_before": [
+                            "type": "string",
+                            "description": "Filter: created before this date (ISO 8601)"
                         ]
                     ],
                     "required": ["query"]
@@ -329,6 +356,12 @@ public actor MCPServer {
                     "properties": [:]
                 ]
             ]
+            // TODO: Re-enable when SimilaritySearchKit Core ML issue is fixed
+            // [
+            //     "name": "semantic_search",
+            //     "description": "Search notes by meaning using AI embeddings (MiniLM)...",
+            //     "inputSchema": [...]
+            // ]
         ]
 
         return JSONRPCResponse(
@@ -389,12 +422,33 @@ public actor MCPServer {
                 }
                 let limit = arguments["limit"] as? Int ?? 20
                 let searchContent = arguments["search_content"] as? Bool ?? false
-                let notes = try notesDB.searchNotes(query: query, limit: limit, searchContent: searchContent)
+                let fuzzy = arguments["fuzzy"] as? Bool ?? false
+                let folder = arguments["folder"] as? String
 
-                // Threshold fallback hint: if few results and content search wasn't used, suggest it
+                // Parse ISO 8601 date filters
+                let dateFormatter = ISO8601DateFormatter()
+                dateFormatter.formatOptions = [.withFullDate]
+                let modifiedAfter = (arguments["modified_after"] as? String).flatMap { dateFormatter.date(from: $0) }
+                let modifiedBefore = (arguments["modified_before"] as? String).flatMap { dateFormatter.date(from: $0) }
+                let createdAfter = (arguments["created_after"] as? String).flatMap { dateFormatter.date(from: $0) }
+                let createdBefore = (arguments["created_before"] as? String).flatMap { dateFormatter.date(from: $0) }
+
+                let notes = try notesDB.searchNotes(
+                    query: query,
+                    limit: limit,
+                    searchContent: searchContent,
+                    fuzzy: fuzzy,
+                    folder: folder,
+                    modifiedAfter: modifiedAfter,
+                    modifiedBefore: modifiedBefore,
+                    createdAfter: createdAfter,
+                    createdBefore: createdBefore
+                )
+
+                // Threshold fallback hint: if few results and advanced options weren't used, suggest them
                 let threshold = 5
-                if !searchContent && notes.count < threshold && notes.count < limit {
-                    result = ["notes": notes, "hint": "💡 Only \(notes.count) result(s) found in titles/snippets/folders. Set search_content=true to also search note bodies."]
+                if !searchContent && !fuzzy && notes.count < threshold && notes.count < limit {
+                    result = ["notes": notes, "hint": "💡 Only \(notes.count) result(s) found. Try search_content=true (search bodies) or fuzzy=true (typo tolerance)."]
                 } else {
                     result = notes
                 }
@@ -495,6 +549,14 @@ public actor MCPServer {
             case "list_note_links":
                 let links = try notesDB.listNoteLinks()
                 result = ["links": links.map { ["source_id": $0.sourceId, "text": $0.text, "target_id": $0.targetId] }, "count": links.count] as [String: Any]
+            // TODO: Re-enable when SimilaritySearchKit Core ML issue is fixed
+            // case "semantic_search":
+            //     guard let query = arguments["query"] as? String else {
+            //         throw NotesError.missingParameter("query")
+            //     }
+            //     let limit = arguments["limit"] as? Int ?? 10
+            //     let searchResults = try await semanticSearch.search(query: query, limit: limit)
+            //     result = ["results": searchResults, "count": searchResults.count, "indexed_notes": await semanticSearch.indexedCount] as [String: Any]
             default:
                 return JSONRPCResponse(
                     jsonrpc: "2.0",
@@ -596,7 +658,11 @@ public actor MCPServer {
             return output
         } else if let actionResult = result as? [String: Any] {
             // Handle various action results
-            // Check for hashtag list result first
+            // TODO: Re-enable when SimilaritySearchKit Core ML issue is fixed
+            // if let semanticResults = actionResult["results"] as? [SemanticSearchResult] {
+            //     ... semantic search result formatting ...
+            // }
+            // Check for hashtag list result
             if let hashtags = actionResult["hashtags"] as? [String] {
                 let count = actionResult["count"] as? Int ?? hashtags.count
                 let tagList = hashtags.joined(separator: "  ")

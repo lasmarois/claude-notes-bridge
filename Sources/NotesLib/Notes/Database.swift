@@ -152,11 +152,154 @@ public class NotesDatabase {
         return noteContent
     }
 
+    // MARK: - Fuzzy Matching
+
+    /// Calculate Levenshtein distance between two strings
+    private func levenshteinDistance(_ s1: String, _ s2: String) -> Int {
+        let s1 = Array(s1.lowercased())
+        let s2 = Array(s2.lowercased())
+
+        let m = s1.count
+        let n = s2.count
+
+        if m == 0 { return n }
+        if n == 0 { return m }
+
+        var matrix = [[Int]](repeating: [Int](repeating: 0, count: n + 1), count: m + 1)
+
+        for i in 0...m { matrix[i][0] = i }
+        for j in 0...n { matrix[0][j] = j }
+
+        for i in 1...m {
+            for j in 1...n {
+                let cost = s1[i - 1] == s2[j - 1] ? 0 : 1
+                matrix[i][j] = min(
+                    matrix[i - 1][j] + 1,      // deletion
+                    matrix[i - 1][j - 1] + cost, // substitution
+                    matrix[i][j - 1] + 1       // insertion
+                )
+            }
+        }
+
+        return matrix[m][n]
+    }
+
+    /// Check if a word fuzzy-matches a query term
+    /// Threshold: max 2 edits for words <= 5 chars, max 3 for longer
+    private func fuzzyMatch(_ word: String, query: String) -> Bool {
+        let threshold = query.count <= 5 ? 2 : 3
+        return levenshteinDistance(word, query) <= threshold
+    }
+
+    /// Check if text contains a fuzzy match for the query
+    private func textContainsFuzzyMatch(_ text: String, query: String) -> Bool {
+        // First check exact substring match
+        if text.lowercased().contains(query.lowercased()) {
+            return true
+        }
+
+        // Then check word-level fuzzy matching
+        let words = text.lowercased().split(whereSeparator: { !$0.isLetter && !$0.isNumber })
+            .map { String($0) }
+
+        return words.contains { fuzzyMatch($0, query: query) }
+    }
+
+    // MARK: - Query Parsing
+
+    /// Parse query for AND/OR operators
+    /// Returns (terms, isAndQuery) - if no operators, treats as single term
+    private func parseMultiTermQuery(_ query: String) -> (terms: [String], isAndQuery: Bool) {
+        // Check for explicit AND/OR (case-insensitive)
+        let upperQuery = query.uppercased()
+
+        if upperQuery.contains(" AND ") {
+            let terms = query
+                .replacingOccurrences(of: " AND ", with: "\u{0000}", options: .caseInsensitive)
+                .split(separator: "\u{0000}")
+                .map { $0.trimmingCharacters(in: .whitespaces) }
+                .filter { !$0.isEmpty }
+            return (terms, true)
+        } else if upperQuery.contains(" OR ") {
+            let terms = query
+                .replacingOccurrences(of: " OR ", with: "\u{0000}", options: .caseInsensitive)
+                .split(separator: "\u{0000}")
+                .map { $0.trimmingCharacters(in: .whitespaces) }
+                .filter { !$0.isEmpty }
+            return (terms, false)
+        }
+
+        // No operators - single term
+        return ([query], true)
+    }
+
+    /// Build SQL condition for a single search term
+    private func buildTermCondition(termIndex: Int) -> String {
+        let base = termIndex * 3
+        return """
+            (
+                LOWER(n.ZTITLE1) LIKE '%' || LOWER(?\(base + 1)) || '%'
+                OR LOWER(COALESCE(n.ZSNIPPET, '')) LIKE '%' || LOWER(?\(base + 2)) || '%'
+                OR LOWER(COALESCE(f.ZTITLE2, '')) LIKE '%' || LOWER(?\(base + 3)) || '%'
+            )
+            """
+    }
+
     /// Search notes by content
     /// Enhanced search: case-insensitive, searches title + snippet + folder name
+    /// Supports multi-term queries: "term1 AND term2" or "term1 OR term2"
     /// Set searchContent=true to also search decoded note body (slower)
-    public func searchNotes(query: String, limit: Int = 20, searchContent: Bool = false) throws -> [Note] {
+    /// Set fuzzy=true to enable typo-tolerant matching using Levenshtein distance
+    /// Filters: folder (exact match), modifiedAfter/Before, createdAfter/Before (ISO dates)
+    public func searchNotes(
+        query: String,
+        limit: Int = 20,
+        searchContent: Bool = false,
+        fuzzy: Bool = false,
+        folder: String? = nil,
+        modifiedAfter: Date? = nil,
+        modifiedBefore: Date? = nil,
+        createdAfter: Date? = nil,
+        createdBefore: Date? = nil
+    ) throws -> [Note] {
         try ensureOpen()
+
+        let (terms, isAndQuery) = parseMultiTermQuery(query)
+        let connector = isAndQuery ? " AND " : " OR "
+
+        // Build dynamic WHERE clause for multi-term search
+        let termConditions = terms.enumerated().map { idx, _ in buildTermCondition(termIndex: idx) }
+        let whereClause = termConditions.joined(separator: connector)
+
+        // Build filter conditions
+        var filterConditions: [String] = []
+        var nextParamIndex = terms.count * 3 + 1
+
+        if folder != nil {
+            filterConditions.append("LOWER(f.ZTITLE2) = LOWER(?\(nextParamIndex))")
+            nextParamIndex += 1
+        }
+
+        // Apple Notes stores dates as seconds since 2001-01-01 (Core Data reference date)
+        let coreDataEpoch: TimeInterval = 978307200 // Seconds between 1970 and 2001
+        if modifiedAfter != nil {
+            filterConditions.append("n.ZMODIFICATIONDATE1 >= ?\(nextParamIndex)")
+            nextParamIndex += 1
+        }
+        if modifiedBefore != nil {
+            filterConditions.append("n.ZMODIFICATIONDATE1 <= ?\(nextParamIndex)")
+            nextParamIndex += 1
+        }
+        if createdAfter != nil {
+            filterConditions.append("n.ZCREATIONDATE1 >= ?\(nextParamIndex)")
+            nextParamIndex += 1
+        }
+        if createdBefore != nil {
+            filterConditions.append("n.ZCREATIONDATE1 <= ?\(nextParamIndex)")
+            nextParamIndex += 1
+        }
+
+        let filterClause = filterConditions.isEmpty ? "" : " AND " + filterConditions.joined(separator: " AND ")
 
         // Phase 1: Fast search using indexed columns (title, snippet, folder)
         let searchQuery = """
@@ -169,13 +312,9 @@ public class NotesDatabase {
             FROM ZICCLOUDSYNCINGOBJECT n
             LEFT JOIN ZICCLOUDSYNCINGOBJECT f ON n.ZFOLDER = f.Z_PK
             WHERE n.ZTITLE1 IS NOT NULL
-              AND (
-                  LOWER(n.ZTITLE1) LIKE '%' || LOWER(?) || '%'
-                  OR LOWER(COALESCE(n.ZSNIPPET, '')) LIKE '%' || LOWER(?) || '%'
-                  OR LOWER(COALESCE(f.ZTITLE2, '')) LIKE '%' || LOWER(?) || '%'
-              )
+              AND (\(whereClause))\(filterClause)
             ORDER BY n.ZMODIFICATIONDATE1 DESC
-            LIMIT ?
+            LIMIT ?\(nextParamIndex)
             """
 
         var statement: OpaquePointer?
@@ -185,11 +324,37 @@ public class NotesDatabase {
         defer { sqlite3_finalize(statement) }
 
         let SQLITE_TRANSIENT_SEARCH = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
-        // Bind query for each OR condition
-        sqlite3_bind_text(statement, 1, (query as NSString).utf8String, -1, SQLITE_TRANSIENT_SEARCH)
-        sqlite3_bind_text(statement, 2, (query as NSString).utf8String, -1, SQLITE_TRANSIENT_SEARCH)
-        sqlite3_bind_text(statement, 3, (query as NSString).utf8String, -1, SQLITE_TRANSIENT_SEARCH)
-        sqlite3_bind_int(statement, 4, Int32(limit))
+        // Bind each term 3 times (for title, snippet, folder)
+        for (idx, term) in terms.enumerated() {
+            let base = idx * 3
+            sqlite3_bind_text(statement, Int32(base + 1), (term as NSString).utf8String, -1, SQLITE_TRANSIENT_SEARCH)
+            sqlite3_bind_text(statement, Int32(base + 2), (term as NSString).utf8String, -1, SQLITE_TRANSIENT_SEARCH)
+            sqlite3_bind_text(statement, Int32(base + 3), (term as NSString).utf8String, -1, SQLITE_TRANSIENT_SEARCH)
+        }
+
+        // Bind filter parameters
+        var bindIndex = Int32(terms.count * 3 + 1)
+        if let folder = folder {
+            sqlite3_bind_text(statement, bindIndex, (folder as NSString).utf8String, -1, SQLITE_TRANSIENT_SEARCH)
+            bindIndex += 1
+        }
+        if let modifiedAfter = modifiedAfter {
+            sqlite3_bind_double(statement, bindIndex, modifiedAfter.timeIntervalSinceReferenceDate)
+            bindIndex += 1
+        }
+        if let modifiedBefore = modifiedBefore {
+            sqlite3_bind_double(statement, bindIndex, modifiedBefore.timeIntervalSinceReferenceDate)
+            bindIndex += 1
+        }
+        if let createdAfter = createdAfter {
+            sqlite3_bind_double(statement, bindIndex, createdAfter.timeIntervalSinceReferenceDate)
+            bindIndex += 1
+        }
+        if let createdBefore = createdBefore {
+            sqlite3_bind_double(statement, bindIndex, createdBefore.timeIntervalSinceReferenceDate)
+            bindIndex += 1
+        }
+        sqlite3_bind_int(statement, bindIndex, Int32(limit))
 
         var notes: [Note] = []
         var foundIds = Set<String>()
@@ -213,16 +378,81 @@ public class NotesDatabase {
 
         // Phase 2: If searchContent=true and we haven't hit limit, search note bodies
         if searchContent && notes.count < limit {
-            let contentMatches = try searchNoteContent(query: query, limit: limit - notes.count, excludeIds: foundIds)
+            let contentMatches = try searchNoteContent(terms: terms, isAndQuery: isAndQuery, limit: limit - notes.count, excludeIds: foundIds)
             notes.append(contentsOf: contentMatches)
+            for note in contentMatches {
+                foundIds.insert(note.id)
+            }
+        }
+
+        // Phase 3: If fuzzy=true and we haven't hit limit, do fuzzy matching on titles/folders
+        if fuzzy && notes.count < limit {
+            let fuzzyMatches = try searchNotesFuzzy(terms: terms, isAndQuery: isAndQuery, limit: limit - notes.count, excludeIds: foundIds)
+            notes.append(contentsOf: fuzzyMatches)
         }
 
         return notes
     }
 
+    /// Fuzzy search on note titles and folders using Levenshtein distance
+    private func searchNotesFuzzy(terms: [String], isAndQuery: Bool, limit: Int, excludeIds: Set<String>) throws -> [Note] {
+        // Fetch all notes and filter with fuzzy matching
+        let allNotesQuery = """
+            SELECT
+                n.ZIDENTIFIER as id,
+                n.ZTITLE1 as title,
+                f.ZTITLE2 as folder,
+                n.ZCREATIONDATE1 as created,
+                n.ZMODIFICATIONDATE1 as modified
+            FROM ZICCLOUDSYNCINGOBJECT n
+            LEFT JOIN ZICCLOUDSYNCINGOBJECT f ON n.ZFOLDER = f.Z_PK
+            WHERE n.ZTITLE1 IS NOT NULL
+            ORDER BY n.ZMODIFICATIONDATE1 DESC
+            """
+
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(db, allNotesQuery, -1, &statement, nil) == SQLITE_OK else {
+            throw NotesError.queryFailed(String(cString: sqlite3_errmsg(db)))
+        }
+        defer { sqlite3_finalize(statement) }
+
+        var matches: [Note] = []
+
+        while sqlite3_step(statement) == SQLITE_ROW && matches.count < limit {
+            let id = columnString(statement, 0) ?? ""
+
+            // Skip already found notes
+            if excludeIds.contains(id) { continue }
+
+            let title = columnString(statement, 1) ?? "Untitled"
+            let folder = columnString(statement, 2)
+            let created = columnDate(statement, 3)
+            let modified = columnDate(statement, 4)
+
+            // Combine title and folder for fuzzy matching
+            let searchableText = title + " " + (folder ?? "")
+
+            // Check if all/any terms fuzzy-match
+            let termMatches = terms.map { textContainsFuzzyMatch(searchableText, query: $0) }
+            let matchesQuery = isAndQuery ? termMatches.allSatisfy { $0 } : termMatches.contains(true)
+
+            if matchesQuery {
+                matches.append(Note(
+                    id: id,
+                    title: title,
+                    folder: folder,
+                    createdAt: created,
+                    modifiedAt: modified
+                ))
+            }
+        }
+
+        return matches
+    }
+
     /// Search within decoded note content (protobuf bodies)
     /// This is slower as it requires decoding each note
-    private func searchNoteContent(query: String, limit: Int, excludeIds: Set<String>) throws -> [Note] {
+    private func searchNoteContent(terms: [String], isAndQuery: Bool, limit: Int, excludeIds: Set<String>) throws -> [Note] {
         // Get all notes not already found, ordered by modification date
         let allNotesQuery = """
             SELECT
@@ -245,7 +475,7 @@ public class NotesDatabase {
         defer { sqlite3_finalize(statement) }
 
         var matches: [Note] = []
-        let lowerQuery = query.lowercased()
+        let lowerTerms = terms.map { $0.lowercased() }
 
         while sqlite3_step(statement) == SQLITE_ROW && matches.count < limit {
             let id = columnString(statement, 0) ?? ""
@@ -259,16 +489,21 @@ public class NotesDatabase {
             let modified = columnDate(statement, 4)
             let pk = sqlite3_column_int64(statement, 5)
 
-            // Decode note content and search
-            if let content = try? getDecodedContent(forNotePK: pk),
-               content.lowercased().contains(lowerQuery) {
-                matches.append(Note(
-                    id: id,
-                    title: title,
-                    folder: folder,
-                    createdAt: created,
-                    modifiedAt: modified
-                ))
+            // Decode note content and search with multi-term logic
+            if let content = try? getDecodedContent(forNotePK: pk) {
+                let lowerContent = content.lowercased()
+                let termMatches = lowerTerms.map { lowerContent.contains($0) }
+                let matches_query = isAndQuery ? termMatches.allSatisfy { $0 } : termMatches.contains(true)
+
+                if matches_query {
+                    matches.append(Note(
+                        id: id,
+                        title: title,
+                        folder: folder,
+                        createdAt: created,
+                        modifiedAt: modified
+                    ))
+                }
             }
         }
 
