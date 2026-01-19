@@ -544,6 +544,524 @@ struct IntegrationTests {
     }
 }
 
+// MARK: - Round-Trip Tests
+// These tests verify complete workflows end-to-end
+
+@Suite("Round-Trip Tests", .tags(.integration), .serialized)
+struct RoundTripTests {
+    static let testFolderName = "Claude-Integration-Tests"
+    let appleScript = NotesAppleScript()
+    let database = NotesDatabase()
+
+    private func ensureTestFolder() throws {
+        let folders = try appleScript.listFolders()
+        if !folders.contains(Self.testFolderName) {
+            do {
+                _ = try appleScript.createFolder(name: Self.testFolderName)
+                Thread.sleep(forTimeInterval: 0.5)
+            } catch {
+                if !"\(error)".contains("Duplicate folder") {
+                    throw error
+                }
+            }
+        }
+    }
+
+    private func cleanup(noteId: String) {
+        try? appleScript.deleteNote(id: noteId)
+    }
+
+    private func uniqueTitle(_ base: String) -> String {
+        "\(base)-\(UUID().uuidString.prefix(8))"
+    }
+
+    // MARK: - Full Workflow Tests
+
+    @Test("Create → Read → Verify content matches")
+    func testCreateReadVerify() throws {
+        try ensureTestFolder()
+
+        let title = uniqueTitle("RoundTrip Create")
+        let body = "This is the body content for round-trip testing.\n\nIt has multiple paragraphs."
+
+        // Create
+        let created = try appleScript.createNote(
+            title: title,
+            body: body,
+            folder: Self.testFolderName
+        )
+
+        // Wait for database sync
+        Thread.sleep(forTimeInterval: 1.5)
+
+        // Read via database
+        let notes = try database.searchNotes(query: title, limit: 1)
+        #expect(!notes.isEmpty, "Note should be findable via search")
+
+        guard let note = notes.first else {
+            cleanup(noteId: created.id)
+            return
+        }
+
+        let content = try database.readNote(id: note.id)
+
+        // Verify
+        #expect(content.title == title, "Title should match")
+        #expect(content.folder == Self.testFolderName, "Folder should match")
+        #expect(content.content.contains("body content"), "Body content should be present")
+        #expect(content.content.contains("multiple paragraphs"), "Full body should be present")
+
+        cleanup(noteId: created.id)
+    }
+
+    @Test("Create → Update → Read → Verify changes")
+    func testCreateUpdateReadVerify() throws {
+        try ensureTestFolder()
+
+        let originalTitle = uniqueTitle("RoundTrip Update")
+        let originalBody = "Original body content."
+
+        // Create
+        let created = try appleScript.createNote(
+            title: originalTitle,
+            body: originalBody,
+            folder: Self.testFolderName
+        )
+
+        // Update
+        let newTitle = uniqueTitle("Updated Title")
+        let newBody = "Updated body content with new information."
+        try appleScript.updateNote(id: created.id, title: newTitle, body: newBody)
+
+        // Wait for sync
+        Thread.sleep(forTimeInterval: 1.5)
+
+        // Read via AppleScript (more immediate)
+        let html = try appleScript.getNoteBody(id: created.id)
+
+        // Verify changes
+        #expect(html.contains(newTitle), "Updated title should be present")
+        #expect(html.contains("Updated body content"), "Updated body should be present")
+        #expect(!html.contains("Original body"), "Original body should be replaced")
+
+        cleanup(noteId: created.id)
+    }
+
+    @Test("Create → Delete → Verify removed from folder")
+    func testCreateDeleteVerify() throws {
+        try ensureTestFolder()
+
+        let title = uniqueTitle("RoundTrip Delete")
+        let body = "This note will be deleted."
+
+        // Create
+        let created = try appleScript.createNote(
+            title: title,
+            body: body,
+            folder: Self.testFolderName
+        )
+
+        // Wait for sync
+        Thread.sleep(forTimeInterval: 1.0)
+
+        // Verify exists
+        let beforeNotes = try database.listNotes(folder: Self.testFolderName, limit: 100)
+        let existsBefore = beforeNotes.contains { $0.title == title }
+        #expect(existsBefore, "Note should exist before deletion")
+
+        // Delete
+        try appleScript.deleteNote(id: created.id)
+
+        // Wait for sync
+        Thread.sleep(forTimeInterval: 1.5)
+
+        // Verify removed from folder (may still exist in Recently Deleted)
+        let afterNotes = try database.listNotes(folder: Self.testFolderName, limit: 100)
+        let existsAfter = afterNotes.contains { $0.title == title }
+        #expect(!existsAfter, "Note should not be in test folder after deletion")
+    }
+
+    @Test("Create multiple → List → Verify all present")
+    func testCreateMultipleListVerify() throws {
+        try ensureTestFolder()
+
+        let titles = [
+            uniqueTitle("Multi 1"),
+            uniqueTitle("Multi 2"),
+            uniqueTitle("Multi 3")
+        ]
+
+        var createdIds: [String] = []
+
+        // Create multiple notes
+        for (index, title) in titles.enumerated() {
+            let result = try appleScript.createNote(
+                title: title,
+                body: "Body for note \(index + 1)",
+                folder: Self.testFolderName
+            )
+            createdIds.append(result.id)
+        }
+
+        // Wait for sync
+        Thread.sleep(forTimeInterval: 2.0)
+
+        // List and verify
+        let notes = try database.listNotes(folder: Self.testFolderName, limit: 100)
+        let foundTitles = notes.map { $0.title }
+
+        for title in titles {
+            #expect(foundTitles.contains(title), "Should find note: \(title)")
+        }
+
+        // Cleanup
+        for id in createdIds {
+            cleanup(noteId: id)
+        }
+    }
+
+    @Test("Create with markdown → Read HTML → Verify formatting preserved")
+    func testMarkdownRoundTrip() throws {
+        try ensureTestFolder()
+
+        let title = uniqueTitle("Markdown RoundTrip")
+        let markdownBody = """
+        # Header One
+
+        This has **bold text** and *italic text*.
+
+        ## Header Two
+
+        - Bullet point 1
+        - Bullet point 2
+
+        Some `inline code` here.
+
+        > A blockquote for emphasis.
+        """
+
+        // Create
+        let created = try appleScript.createNote(
+            title: title,
+            body: markdownBody,
+            folder: Self.testFolderName
+        )
+
+        // Read HTML
+        let html = try appleScript.getNoteBody(id: created.id)
+
+        // Verify markdown was converted to HTML
+        #expect(html.contains("<b>bold text</b>"), "Bold should be converted")
+        #expect(html.contains("<i>italic text</i>"), "Italic should be converted")
+        #expect(html.contains("• Bullet point"), "Bullets should be converted")
+        #expect(html.contains("Menlo"), "Code should use Menlo font")
+
+        cleanup(noteId: created.id)
+    }
+}
+
+// MARK: - Edge Case Tests
+
+@Suite("Edge Case Tests", .tags(.integration), .serialized)
+struct EdgeCaseTests {
+    static let testFolderName = "Claude-Integration-Tests"
+    let appleScript = NotesAppleScript()
+    let database = NotesDatabase()
+
+    private func ensureTestFolder() throws {
+        let folders = try appleScript.listFolders()
+        if !folders.contains(Self.testFolderName) {
+            do {
+                _ = try appleScript.createFolder(name: Self.testFolderName)
+                Thread.sleep(forTimeInterval: 0.5)
+            } catch {
+                if !"\(error)".contains("Duplicate folder") {
+                    throw error
+                }
+            }
+        }
+    }
+
+    private func cleanup(noteId: String) {
+        try? appleScript.deleteNote(id: noteId)
+    }
+
+    private func uniqueTitle(_ base: String) -> String {
+        "\(base)-\(UUID().uuidString.prefix(8))"
+    }
+
+    // MARK: - Large Content Tests
+
+    @Test("Create note with large body (10KB)")
+    func testLargeNote10KB() throws {
+        try ensureTestFolder()
+
+        let title = uniqueTitle("Large Note 10KB")
+        // Generate ~10KB of content
+        let paragraph = "This is a paragraph of text that will be repeated many times to create a large note body for testing purposes. "
+        let body = String(repeating: paragraph, count: 100) // ~10KB
+
+        let result = try appleScript.createNote(
+            title: title,
+            body: body,
+            folder: Self.testFolderName
+        )
+
+        // Verify note was created
+        let html = try appleScript.getNoteBody(id: result.id)
+        #expect(html.count > 5000, "HTML should be substantial")
+        #expect(html.contains("paragraph of text"), "Content should be present")
+
+        cleanup(noteId: result.id)
+    }
+
+    @Test("Create note with very long title")
+    func testLongTitle() throws {
+        try ensureTestFolder()
+
+        // 200 character title
+        let baseTitle = "Very Long Title Test - "
+        let title = baseTitle + String(repeating: "x", count: 200 - baseTitle.count) + "-\(UUID().uuidString.prefix(8))"
+
+        let result = try appleScript.createNote(
+            title: title,
+            body: "Short body.",
+            folder: Self.testFolderName
+        )
+
+        let html = try appleScript.getNoteBody(id: result.id)
+        #expect(!html.isEmpty, "Note should be created with long title")
+
+        cleanup(noteId: result.id)
+    }
+
+    @Test("Create note with empty body")
+    func testEmptyBody() throws {
+        try ensureTestFolder()
+
+        let title = uniqueTitle("Empty Body Test")
+
+        let result = try appleScript.createNote(
+            title: title,
+            body: "",
+            folder: Self.testFolderName
+        )
+
+        let html = try appleScript.getNoteBody(id: result.id)
+        #expect(html.contains(title), "Title should be present even with empty body")
+
+        cleanup(noteId: result.id)
+    }
+
+    @Test("Create note with whitespace-only body")
+    func testWhitespaceBody() throws {
+        try ensureTestFolder()
+
+        let title = uniqueTitle("Whitespace Body")
+        let body = "   \n\n   \t\t   \n   "
+
+        let result = try appleScript.createNote(
+            title: title,
+            body: body,
+            folder: Self.testFolderName
+        )
+
+        let html = try appleScript.getNoteBody(id: result.id)
+        #expect(html.contains(title), "Title should be present")
+
+        cleanup(noteId: result.id)
+    }
+
+    @Test("Create note with newlines and carriage returns")
+    func testNewlineVariants() throws {
+        try ensureTestFolder()
+
+        let title = uniqueTitle("Newline Test")
+        let body = "Line 1\nLine 2\rLine 3\r\nLine 4"
+
+        let result = try appleScript.createNote(
+            title: title,
+            body: body,
+            folder: Self.testFolderName
+        )
+
+        let html = try appleScript.getNoteBody(id: result.id)
+        #expect(html.contains("Line 1"), "Content should be present")
+        #expect(html.contains("Line 4"), "All lines should be present")
+
+        cleanup(noteId: result.id)
+    }
+
+    @Test("Create note with HTML-like content in body")
+    func testHTMLInBody() throws {
+        try ensureTestFolder()
+
+        let title = uniqueTitle("HTML Content Test")
+        let body = "This has <script>alert('test')</script> and <div onclick='bad()'>click</div> in it."
+
+        let result = try appleScript.createNote(
+            title: title,
+            body: body,
+            folder: Self.testFolderName
+        )
+
+        let html = try appleScript.getNoteBody(id: result.id)
+        // HTML should be escaped, not executed
+        #expect(html.contains("&lt;script&gt;") || html.contains("script"), "Script tag should be escaped or present as text")
+        #expect(!html.contains("<script>alert"), "Script should not be raw HTML")
+
+        cleanup(noteId: result.id)
+    }
+
+    @Test("Create note with all markdown features")
+    func testAllMarkdownFeatures() throws {
+        try ensureTestFolder()
+
+        let title = uniqueTitle("Full Markdown Test")
+        let body = """
+        # Heading 1
+        ## Heading 2
+        ### Heading 3
+
+        **Bold** and __also bold__
+
+        *Italic* and _also italic_
+
+        ~~Strikethrough~~
+
+        - Bullet 1
+        - Bullet 2
+        * Star bullet
+
+        `inline code`
+
+        ```
+        code block
+        multi-line
+        ```
+
+        > Blockquote text
+        """
+
+        let result = try appleScript.createNote(
+            title: title,
+            body: body,
+            folder: Self.testFolderName
+        )
+
+        let html = try appleScript.getNoteBody(id: result.id)
+
+        // Check various conversions
+        #expect(html.contains("<b>Bold</b>") || html.contains("<b>also bold</b>"), "Bold should work")
+        #expect(html.contains("<i>Italic</i>") || html.contains("<i>also italic</i>"), "Italic should work")
+        #expect(html.contains("<strike>Strikethrough</strike>"), "Strikethrough should work")
+        #expect(html.contains("• Bullet") || html.contains("• Star"), "Bullets should work")
+        #expect(html.contains("Menlo"), "Code should use Menlo font")
+
+        cleanup(noteId: result.id)
+    }
+}
+
+// MARK: - Folder Operations Tests
+
+@Suite("Folder Operations Tests", .tags(.integration), .serialized)
+struct FolderOperationsTests {
+    let appleScript = NotesAppleScript()
+    let database = NotesDatabase()
+
+    private func uniqueFolderName(_ base: String) -> String {
+        "\(base)-\(UUID().uuidString.prefix(8))"
+    }
+
+    @Test("Create and delete folder")
+    func testCreateDeleteFolder() throws {
+        let folderName = uniqueFolderName("Test Folder")
+
+        // Create folder
+        let created = try appleScript.createFolder(name: folderName)
+        #expect(created == folderName, "Created folder name should match")
+
+        // Verify exists
+        let folders = try appleScript.listFolders()
+        #expect(folders.contains(folderName), "Folder should exist after creation")
+
+        // Delete folder
+        try appleScript.deleteFolder(name: folderName)
+
+        // Small delay
+        Thread.sleep(forTimeInterval: 0.5)
+
+        // Verify deleted
+        let foldersAfter = try appleScript.listFolders()
+        #expect(!foldersAfter.contains(folderName), "Folder should not exist after deletion")
+    }
+
+    @Test("Rename folder")
+    func testRenameFolder() throws {
+        let originalName = uniqueFolderName("Original Folder")
+        let newName = uniqueFolderName("Renamed Folder")
+
+        // Create folder
+        _ = try appleScript.createFolder(name: originalName)
+
+        // Rename
+        try appleScript.renameFolder(from: originalName, to: newName)
+
+        // Small delay
+        Thread.sleep(forTimeInterval: 0.5)
+
+        // Verify
+        let folders = try appleScript.listFolders()
+        #expect(!folders.contains(originalName), "Original name should be gone")
+        #expect(folders.contains(newName), "New name should exist")
+
+        // Cleanup
+        try appleScript.deleteFolder(name: newName)
+    }
+
+    @Test("Move note to different folder")
+    func testMoveNote() throws {
+        let folder1 = uniqueFolderName("Source Folder")
+        let folder2 = uniqueFolderName("Dest Folder")
+        let noteTitle = "Move Test Note-\(UUID().uuidString.prefix(8))"
+
+        // Create both folders
+        _ = try appleScript.createFolder(name: folder1)
+        _ = try appleScript.createFolder(name: folder2)
+
+        // Create note in folder1
+        let note = try appleScript.createNote(
+            title: noteTitle,
+            body: "This note will be moved.",
+            folder: folder1
+        )
+
+        // Wait for sync
+        Thread.sleep(forTimeInterval: 1.0)
+
+        // Move to folder2
+        try appleScript.moveNote(noteId: note.id, toFolder: folder2)
+
+        // Wait for sync
+        Thread.sleep(forTimeInterval: 1.0)
+
+        // Verify note is in folder2
+        let folder2Notes = try database.listNotes(folder: folder2, limit: 50)
+        let foundInFolder2 = folder2Notes.contains { $0.title == noteTitle }
+        #expect(foundInFolder2, "Note should be in destination folder")
+
+        // Verify note is not in folder1
+        let folder1Notes = try database.listNotes(folder: folder1, limit: 50)
+        let foundInFolder1 = folder1Notes.contains { $0.title == noteTitle }
+        #expect(!foundInFolder1, "Note should not be in source folder")
+
+        // Cleanup
+        try appleScript.deleteNote(id: note.id)
+        try appleScript.deleteFolder(name: folder1)
+        try appleScript.deleteFolder(name: folder2)
+    }
+}
+
 // MARK: - Test Tags
 
 extension Tag {
