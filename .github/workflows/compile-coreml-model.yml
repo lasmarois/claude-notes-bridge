@@ -6,6 +6,9 @@ on:
     paths:
       - 'Models/*.mlpackage/**'  # Trigger when mlpackage changes
 
+permissions:
+  contents: write  # Allow pushing commits
+
 jobs:
   compile:
     runs-on: macos-14
@@ -38,6 +41,13 @@ jobs:
             exit 1
           fi
 
+      - name: Upload compiled model as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: MiniLM-compiled-model
+          path: Models/all-MiniLM-L6-v2.mlmodelc
+          retention-days: 90
+
       - name: Commit compiled model
         run: |
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
@@ -55,10 +65,3 @@ jobs:
             Auto-compiled from all-MiniLM-L6-v2.mlpackage using xcrun coremlcompiler"
             git push
           fi
-
-      - name: Upload compiled model as artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: MiniLM-compiled-model
-          path: Models/all-MiniLM-L6-v2.mlmodelc
-          retention-days: 90
