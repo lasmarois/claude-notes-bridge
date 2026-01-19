@@ -4,6 +4,7 @@ Bridge Claude/LLM to Apple Notes API for reading, updating, and organizing notes
 
 ## Planning Context
 
+@planning/ROADMAP.md
 @planning/GOALS.md
 @task_plan.md
 @progress.md
