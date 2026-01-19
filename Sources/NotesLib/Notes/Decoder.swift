@@ -2,10 +2,12 @@ import Foundation
 import Compression
 
 /// Decodes note content from gzipped protobuf format
-class NoteDecoder {
+public class NoteDecoder {
+
+    public init() {}
 
     /// Decode note content from raw ZDATA blob
-    func decode(_ data: Data) throws -> String {
+    public func decode(_ data: Data) throws -> String {
         // Step 1: Decompress gzip
         let decompressed = try decompress(data)
 

@@ -1,19 +1,19 @@
 import Foundation
 
-enum Permissions {
+public enum Permissions {
     /// Path to the Notes database
-    static let notesDatabasePath: String = {
+    public static let notesDatabasePath: String = {
         let home = FileManager.default.homeDirectoryForCurrentUser.path
         return "\(home)/Library/Group Containers/group.com.apple.notes/NoteStore.sqlite"
     }()
 
     /// Check if we have Full Disk Access by trying to read the Notes database
-    static func hasFullDiskAccess() -> Bool {
+    public static func hasFullDiskAccess() -> Bool {
         FileManager.default.isReadableFile(atPath: notesDatabasePath)
     }
 
     /// Print instructions for granting Full Disk Access
-    static func printAccessInstructions() {
+    public static func printAccessInstructions() {
         let message = """
         ╔════════════════════════════════════════════════════════════════╗
         ║                    Full Disk Access Required                   ║

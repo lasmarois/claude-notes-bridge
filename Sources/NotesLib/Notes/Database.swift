@@ -2,13 +2,13 @@ import Foundation
 import SQLite3
 
 /// Access to the Apple Notes SQLite database
-class NotesDatabase {
+public class NotesDatabase {
     private var db: OpaquePointer?
     private let decoder = NoteDecoder()
     private let encoder = NoteEncoder()
     private var isReadWrite = false
 
-    init() {
+    public init() {
         // Database is opened lazily on first query
     }
 
@@ -21,7 +21,7 @@ class NotesDatabase {
     // MARK: - Public API
 
     /// List notes with optional folder filter
-    func listNotes(folder: String? = nil, limit: Int = 100) throws -> [Note] {
+    public func listNotes(folder: String? = nil, limit: Int = 100) throws -> [Note] {
         try ensureOpen()
 
         var query = """
@@ -69,7 +69,7 @@ class NotesDatabase {
     }
 
     /// Read a single note's full content
-    func readNote(id: String) throws -> NoteContent {
+    public func readNote(id: String) throws -> NoteContent {
         try ensureOpen()
 
         // First get metadata
@@ -153,7 +153,7 @@ class NotesDatabase {
     }
 
     /// Search notes by content
-    func searchNotes(query: String, limit: Int = 20) throws -> [Note] {
+    public func searchNotes(query: String, limit: Int = 20) throws -> [Note] {
         // For now, search by title
         // TODO: Search within decoded content
         try ensureOpen()
@@ -257,7 +257,7 @@ class NotesDatabase {
     }
 
     /// Get attachment metadata by ID
-    func getAttachment(id: String) throws -> Attachment {
+    public func getAttachment(id: String) throws -> Attachment {
         try ensureOpen()
 
         // Extract PK from x-coredata URL (e.g., "x-coredata://...ICAttachment/p123" -> 123)
@@ -317,7 +317,7 @@ class NotesDatabase {
     ///   - body: The note body content
     ///   - folderName: Optional folder name (uses "Notes" if nil)
     /// - Returns: The UUID of the created note
-    func createNote(title: String, body: String, folderName: String? = nil) throws -> String {
+    public func createNote(title: String, body: String, folderName: String? = nil) throws -> String {
         try ensureOpenReadWrite()
 
         // Build the full note text (title + newlines + body)
@@ -379,7 +379,7 @@ class NotesDatabase {
 
     /// Extract hashtags from embedded objects for a note
     /// Uses ZTYPEUTI1 and ZALTTEXT columns for accurate extraction
-    func getHashtags(forNoteId id: String) throws -> [String] {
+    public func getHashtags(forNoteId id: String) throws -> [String] {
         try ensureOpen()
 
         // First get the note's Z_PK
@@ -419,7 +419,7 @@ class NotesDatabase {
 
     /// Extract note-to-note links from embedded objects for a note
     /// Returns array of (linkText, targetNoteId) tuples
-    func getNoteLinks(forNoteId id: String) throws -> [(text: String, targetId: String)] {
+    public func getNoteLinks(forNoteId id: String) throws -> [(text: String, targetId: String)] {
         try ensureOpen()
 
         let pk = try getNotePK(id: id)
@@ -490,7 +490,7 @@ class NotesDatabase {
 
     /// List all unique hashtags in the database
     /// Uses embedded objects table with ZTYPEUTI1
-    func listHashtags() throws -> [String] {
+    public func listHashtags() throws -> [String] {
         try ensureOpen()
 
         let query = """
@@ -521,7 +521,7 @@ class NotesDatabase {
 
     /// List all note-to-note links in the database
     /// Returns array of (sourceNoteId, linkText, targetNoteId) tuples
-    func listNoteLinks() throws -> [(sourceId: String, text: String, targetId: String)] {
+    public func listNoteLinks() throws -> [(sourceId: String, text: String, targetId: String)] {
         try ensureOpen()
 
         let query = """
@@ -562,7 +562,7 @@ class NotesDatabase {
     }
 
     /// Search notes by hashtag using embedded objects table
-    func searchNotesByHashtag(tag: String) throws -> [Note] {
+    public func searchNotesByHashtag(tag: String) throws -> [Note] {
         try ensureOpen()
 
         // Remove # prefix if present
@@ -618,7 +618,7 @@ class NotesDatabase {
     }
 
     /// List available folders
-    func listFolders() throws -> [(pk: Int64, name: String)] {
+    public func listFolders() throws -> [(pk: Int64, name: String)] {
         try ensureOpen()
 
         let query = """

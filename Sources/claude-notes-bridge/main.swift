@@ -1,4 +1,5 @@
 import Foundation
+import NotesLib
 
 // Handle test mode for encoder verification
 if CommandLine.arguments.contains("--test-encoder") {

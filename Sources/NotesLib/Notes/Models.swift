@@ -3,47 +3,47 @@ import Foundation
 // MARK: - Note Models
 
 /// Basic note metadata for list operations
-struct Note {
-    let id: String
-    let title: String
-    let folder: String?
-    let createdAt: Date?
-    let modifiedAt: Date?
+public struct Note {
+    public let id: String
+    public let title: String
+    public let folder: String?
+    public let createdAt: Date?
+    public let modifiedAt: Date?
 }
 
 /// Full note content for read operations
-struct NoteContent {
-    let id: String
-    let title: String
-    let content: String
-    let folder: String?
-    let createdAt: Date?
-    let modifiedAt: Date?
-    var attachments: [Attachment] = []
-    var hashtags: [String] = []
-    var noteLinks: [NoteLink] = []
+public struct NoteContent {
+    public let id: String
+    public let title: String
+    public let content: String
+    public let folder: String?
+    public let createdAt: Date?
+    public let modifiedAt: Date?
+    public var attachments: [Attachment] = []
+    public var hashtags: [String] = []
+    public var noteLinks: [NoteLink] = []
 }
 
 /// A link to another note
-struct NoteLink {
-    let text: String      // Display text of the link
-    let targetId: String  // UUID of the target note
+public struct NoteLink {
+    public let text: String      // Display text of the link
+    public let targetId: String  // UUID of the target note
 }
 
 /// Attachment metadata
-struct Attachment {
-    let id: String           // x-coredata://...ICAttachment/p123
-    let identifier: String   // UUID
-    let name: String?        // filename (e.g., "IMG_0473.jpg")
-    let typeUTI: String      // e.g., "public.jpeg", "com.adobe.pdf"
-    let fileSize: Int64      // bytes
-    let createdAt: Date?
-    let modifiedAt: Date?
+public struct Attachment {
+    public let id: String           // x-coredata://...ICAttachment/p123
+    public let identifier: String   // UUID
+    public let name: String?        // filename (e.g., "IMG_0473.jpg")
+    public let typeUTI: String      // e.g., "public.jpeg", "com.adobe.pdf"
+    public let fileSize: Int64      // bytes
+    public let createdAt: Date?
+    public let modifiedAt: Date?
 }
 
 // MARK: - Errors
 
-enum NotesError: LocalizedError {
+public enum NotesError: LocalizedError {
     case databaseNotFound
     case cannotOpenDatabase(String)
     case queryFailed(String)
@@ -55,7 +55,7 @@ enum NotesError: LocalizedError {
     case appleScriptError(String)
     case attachmentNotFound(String)
 
-    var errorDescription: String? {
+    public var errorDescription: String? {
         switch self {
         case .databaseNotFound:
             return "Notes database not found. Is Full Disk Access enabled?"

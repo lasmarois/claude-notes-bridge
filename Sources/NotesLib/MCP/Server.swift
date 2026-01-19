@@ -1,18 +1,18 @@
 import Foundation
 
 /// MCP Server implementation using JSON-RPC over stdio
-actor MCPServer {
+public actor MCPServer {
     private let notesDB: NotesDatabase
     private let notesAS: NotesAppleScript
     private var initialized = false
 
-    init() {
+    public init() {
         self.notesDB = NotesDatabase()
         self.notesAS = NotesAppleScript()
     }
 
     /// Main run loop - reads JSON-RPC requests from stdin, writes responses to stdout
-    func run() async {
+    public func run() async {
         while let line = readLine() {
             guard let data = line.data(using: .utf8) else { continue }
 

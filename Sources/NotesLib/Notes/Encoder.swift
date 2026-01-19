@@ -2,12 +2,14 @@ import Foundation
 import Compression
 
 /// Encodes note content to gzipped protobuf format for Apple Notes
-class NoteEncoder {
+public class NoteEncoder {
+
+    public init() {}
 
     /// Encode note text to ZDATA blob format
     /// - Parameter text: The full note text (title + body separated by newlines)
     /// - Returns: Gzip-compressed protobuf data ready for ZICNOTEDATA.ZDATA
-    func encode(_ text: String) throws -> Data {
+    public func encode(_ text: String) throws -> Data {
         // Step 1: Build protobuf structure
         let protobuf = try buildProtobuf(text: text)
 
