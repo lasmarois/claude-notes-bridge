@@ -8,6 +8,7 @@ Single source of truth for project goals. Only ONE goal can be `in_progress` at 
 |------|-------------|--------|
 | goal-1 | Research Apple Notes integrability and options | `completed` |
 | goal-2 | Define flexible roadmap and integrate into project memory | `completed` |
+| goal-3 | M1: Read-Only MVP (Swift scaffolding, SQLite, protobuf, MCP) | `in_progress` |
 
 ## Status Legend
 

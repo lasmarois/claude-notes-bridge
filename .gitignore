@@ -1,6 +1,11 @@
 # macOS
 .DS_Store
 
+# Swift build artifacts
+.build/
+.swiftpm/
+Package.resolved
+
 # Local Claude config
 CLAUDE.local.md
 
