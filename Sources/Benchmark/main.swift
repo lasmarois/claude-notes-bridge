@@ -31,53 +31,60 @@ print("🔍 Apple Notes Search Benchmark")
 print("================================\n")
 
 let db = NotesDatabase()
+let ftsIndex = SearchIndex(notesDB: db)
 
 do {
     // Count total notes (db auto-opens on first query)
     let allNotes = try db.listNotes(limit: 10000)
-    print("Total notes in database: \(allNotes.count)\n")
+    print("Total notes in database: \(allNotes.count)")
+    print("FTS index: \(ftsIndex.isIndexed ? "\(ftsIndex.indexedCount) notes" : "not built")\n")
 
     let queries = [
         ("grep", "Common term in titles"),
         ("kubectl", "Technical term"),
         ("ansible", "Should have many matches"),
-        ("configuration", "Generic term likely in bodies"),
         ("cmsg", "Only in note body, not title"),
-        ("sudo", "Common in bodies"),
-        ("xyznotexist123", "No matches - worst case for content search")
+        ("sudo", "Common in bodies")
     ]
 
     print("Running 5 iterations per test...\n")
-    print(String(repeating: "-", count: 80))
+    print(String(repeating: "-", count: 90))
 
     for (query, description) in queries {
         print("\nQuery: \"\(query)\" (\(description))")
 
-        // Without content search
+        // Index only (title/snippet/folder)
         var resultCount1 = 0
-        let t1 = benchmark("without") {
+        let t1 = benchmark("index") {
             let results = try db.searchNotes(query: query, limit: 20, searchContent: false)
             resultCount1 = results.count
         }
 
-        // With content search
+        // With content search (slow)
         var resultCount2 = 0
-        let t2 = benchmark("with content") {
+        let t2 = benchmark("content") {
             let results = try db.searchNotes(query: query, limit: 20, searchContent: true)
             resultCount2 = results.count
         }
 
-        print("  Index only:    \(formatTime(t1.avg)) avg (\(formatTime(t1.min))-\(formatTime(t1.max))) → \(resultCount1) results")
-        print("  With content:  \(formatTime(t2.avg)) avg (\(formatTime(t2.min))-\(formatTime(t2.max))) → \(resultCount2) results")
+        // FTS5 search (fast)
+        var resultCount3 = 0
+        let t3 = benchmark("FTS5") {
+            let results = try ftsIndex.search(query: query, limit: 20)
+            resultCount3 = results.count
+        }
 
-        if t1.avg > 0 {
-            let ratio = t2.avg / t1.avg
-            let extraResults = resultCount2 - resultCount1
-            print("  Δ Slowdown: \(String(format: "%.1f", ratio))x | Extra results: +\(extraResults)")
+        print("  Index only:    \(formatTime(t1.avg)) avg → \(resultCount1) results")
+        print("  Content scan:  \(formatTime(t2.avg)) avg → \(resultCount2) results")
+        print("  FTS5:          \(formatTime(t3.avg)) avg → \(resultCount3) results")
+
+        if t2.avg > 0 && t3.avg > 0 {
+            let speedup = t2.avg / t3.avg
+            print("  ⚡ FTS5 is \(String(format: "%.0f", speedup))x faster than content scan")
         }
     }
 
-    print("\n" + String(repeating: "-", count: 80))
+    print("\n" + String(repeating: "-", count: 90))
     print("\nDone!")
 
 } catch {

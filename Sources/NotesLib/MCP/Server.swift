@@ -4,6 +4,7 @@ import Foundation
 public actor MCPServer {
     private let notesDB: NotesDatabase
     private let notesAS: NotesAppleScript
+    private let searchIndex: SearchIndex
     // TODO: Re-enable when SimilaritySearchKit Core ML issue is fixed
     // private let semanticSearch: SemanticSearch
     private var initialized = false
@@ -11,6 +12,7 @@ public actor MCPServer {
     public init() {
         self.notesDB = NotesDatabase()
         self.notesAS = NotesAppleScript()
+        self.searchIndex = SearchIndex(notesDB: notesDB)
         // self.semanticSearch = SemanticSearch(notesDB: notesDB)
     }
 
@@ -355,6 +357,32 @@ public actor MCPServer {
                     "type": "object",
                     "properties": [:]
                 ]
+            ],
+            [
+                "name": "build_search_index",
+                "description": "Build or rebuild the full-text search (FTS5) index for fast content search. This indexes all note content and enables much faster searching. Run once, then use fts_search.",
+                "inputSchema": [
+                    "type": "object",
+                    "properties": [:]
+                ]
+            ],
+            [
+                "name": "fts_search",
+                "description": "Fast full-text search using FTS5 index. Much faster than search_notes with search_content=true. Requires build_search_index to be run first. Returns ranked results with snippets.",
+                "inputSchema": [
+                    "type": "object",
+                    "properties": [
+                        "query": [
+                            "type": "string",
+                            "description": "Search query (supports phrases in quotes, OR between terms)"
+                        ],
+                        "limit": [
+                            "type": "integer",
+                            "description": "Maximum number of results (default 20)"
+                        ]
+                    ],
+                    "required": ["query"]
+                ]
             ]
             // TODO: Re-enable when SimilaritySearchKit Core ML issue is fixed
             // [
@@ -549,6 +577,35 @@ public actor MCPServer {
             case "list_note_links":
                 let links = try notesDB.listNoteLinks()
                 result = ["links": links.map { ["source_id": $0.sourceId, "text": $0.text, "target_id": $0.targetId] }, "count": links.count] as [String: Any]
+            case "build_search_index":
+                let count = try searchIndex.buildIndex()
+                result = ["indexed": count, "message": "Successfully indexed \(count) notes"] as [String: Any]
+            case "fts_search":
+                guard let query = arguments["query"] as? String else {
+                    throw NotesError.missingParameter("query")
+                }
+                let limit = arguments["limit"] as? Int ?? 20
+
+                if !searchIndex.isIndexed {
+                    result = ["error": "Search index not built. Run build_search_index first.", "indexed": false] as [String: Any]
+                } else {
+                    let ftsResults = try searchIndex.search(query: query, limit: limit)
+                    // Fetch full note metadata for each result
+                    var notes: [Note] = []
+                    for (noteId, snippet) in ftsResults {
+                        if let note = try? notesDB.listNotes(limit: 10000).first(where: { $0.id == noteId }) {
+                            notes.append(Note(
+                                id: note.id,
+                                title: note.title,
+                                folder: note.folder,
+                                createdAt: note.createdAt,
+                                modifiedAt: note.modifiedAt,
+                                matchSnippet: snippet.isEmpty ? nil : snippet
+                            ))
+                        }
+                    }
+                    result = ["notes": notes, "count": notes.count, "indexed_notes": searchIndex.indexedCount] as [String: Any]
+                }
             // TODO: Re-enable when SimilaritySearchKit Core ML issue is fixed
             // case "semantic_search":
             //     guard let query = arguments["query"] as? String else {
@@ -610,7 +667,7 @@ public actor MCPServer {
             }.joined(separator: "\n\n")
         } else if let searchResult = result as? [String: Any],
                   let notes = searchResult["notes"] as? [Note] {
-            // Search result with hint
+            // Search result with optional hint or FTS metadata
             var output = notes.isEmpty ? "No notes found." : notes.map { note in
                 var result = """
                 📝 \(note.title)
@@ -627,7 +684,22 @@ public actor MCPServer {
             if let hint = searchResult["hint"] as? String {
                 output += "\n\n\(hint)"
             }
+
+            // FTS search metadata
+            if let indexedNotes = searchResult["indexed_notes"] as? Int {
+                output += "\n\n📊 FTS Index: \(indexedNotes) notes indexed"
+            }
+
             return output
+        } else if let searchResult = result as? [String: Any],
+                  let errorMsg = searchResult["error"] as? String {
+            // Error result (e.g., FTS index not built)
+            return "⚠️ \(errorMsg)"
+        } else if let searchResult = result as? [String: Any],
+                  let indexed = searchResult["indexed"] as? Int {
+            // Index build result
+            let message = searchResult["message"] as? String ?? "Indexed \(indexed) notes"
+            return "✅ \(message)"
         } else if let note = result as? NoteContent {
             var output = """
             # \(note.title)
