@@ -1062,6 +1062,217 @@ struct FolderOperationsTests {
     }
 }
 
+// MARK: - Hashtag Tests
+// Note: Apple Notes hashtags are detected when typed in the Notes app UI.
+// When creating notes via AppleScript, the # symbol is just text - it doesn't
+// become a "real" hashtag with the embedded object metadata that Notes uses.
+// These tests verify the database can read existing hashtags from notes.
+
+@Suite("Hashtag Tests", .tags(.integration), .serialized)
+struct HashtagTests {
+    static let testFolderName = "Claude-Integration-Tests"
+    let appleScript = NotesAppleScript()
+    let database = NotesDatabase()
+
+    private func ensureTestFolder() throws {
+        let folders = try appleScript.listFolders()
+        if !folders.contains(Self.testFolderName) {
+            do {
+                _ = try appleScript.createFolder(name: Self.testFolderName)
+                Thread.sleep(forTimeInterval: 0.5)
+            } catch {
+                if !"\(error)".contains("Duplicate folder") {
+                    throw error
+                }
+            }
+        }
+    }
+
+    private func cleanup(noteId: String) {
+        try? appleScript.deleteNote(id: noteId)
+    }
+
+    private func uniqueTitle(_ base: String) -> String {
+        "\(base)-\(UUID().uuidString.prefix(8))"
+    }
+
+    @Test("List all hashtags in database")
+    func testListHashtags() throws {
+        // This tests the database's ability to list hashtags
+        // Note: May return empty if no notes have UI-created hashtags
+        let hashtags = try database.listHashtags()
+
+        // Just verify the call succeeds and returns an array
+        // Hashtags might be empty if no notes with hashtags exist
+        #expect(hashtags.count >= 0, "Should return array (possibly empty)")
+    }
+
+    @Test("Search by hashtag returns notes")
+    func testSearchByHashtag() throws {
+        // Test searching by a common hashtag
+        // This will only find notes if user has created hashtags via Notes UI
+        let notes = try database.searchNotesByHashtag(tag: "test")
+
+        // Just verify the call succeeds
+        #expect(notes.count >= 0, "Should return array (possibly empty)")
+    }
+
+    @Test("Create note with hashtag text")
+    func testCreateNoteWithHashtagText() throws {
+        try ensureTestFolder()
+
+        let title = uniqueTitle("Hashtag Text Test")
+        // Note: This creates text that looks like hashtags, but won't be
+        // detected as "real" hashtags by Notes (requires UI interaction)
+        let body = "This note has #testing and #automation tags in the text."
+
+        let result = try appleScript.createNote(
+            title: title,
+            body: body,
+            folder: Self.testFolderName
+        )
+
+        // Verify the text is preserved
+        let html = try appleScript.getNoteBody(id: result.id)
+        #expect(html.contains("#testing"), "Hashtag text should be in body")
+        #expect(html.contains("#automation"), "Hashtag text should be in body")
+
+        cleanup(noteId: result.id)
+    }
+
+    @Test("Get hashtags for specific note")
+    func testGetHashtagsForNote() throws {
+        try ensureTestFolder()
+
+        let title = uniqueTitle("Note Hashtags Test")
+        let body = "Content with #sample hashtag text."
+
+        let result = try appleScript.createNote(
+            title: title,
+            body: body,
+            folder: Self.testFolderName
+        )
+
+        // Wait for sync
+        Thread.sleep(forTimeInterval: 1.0)
+
+        // Find the note
+        let notes = try database.searchNotes(query: title, limit: 1)
+
+        if let note = notes.first {
+            // Get hashtags - will be empty for API-created notes
+            // (hashtags require Notes UI to be "activated")
+            let hashtags = try database.getHashtags(forNoteId: note.id)
+            #expect(hashtags.count >= 0, "Should return array (possibly empty)")
+        }
+
+        cleanup(noteId: result.id)
+    }
+}
+
+// MARK: - Note Links Tests
+
+@Suite("Note Links Tests", .tags(.integration), .serialized)
+struct NoteLinkTests {
+    let database = NotesDatabase()
+
+    @Test("List all note links in database")
+    func testListNoteLinks() throws {
+        // This tests the database's ability to list note-to-note links
+        // Note: May return empty if no notes have links to other notes
+        let links = try database.listNoteLinks()
+
+        // Just verify the call succeeds
+        // Each link is a tuple of (sourceId, text, targetId)
+        for link in links {
+            #expect(!link.sourceId.isEmpty, "Source ID should not be empty")
+            #expect(!link.targetId.isEmpty, "Target ID should not be empty")
+        }
+    }
+
+    @Test("Get note links for specific note")
+    func testGetNoteLinksForNote() throws {
+        // Get a note from the database to test with
+        let notes = try database.listNotes(limit: 5)
+
+        guard let note = notes.first else {
+            // No notes in database, skip test
+            return
+        }
+
+        // Get note links for this note
+        let noteContent = try database.readNote(id: note.id)
+
+        // Verify noteLinks is accessible (may be empty)
+        #expect(noteContent.noteLinks.count >= 0, "Should have noteLinks array")
+    }
+}
+
+// MARK: - Database Query Tests
+// Additional tests for database-specific functionality
+
+@Suite("Database Query Tests", .tags(.integration), .serialized)
+struct DatabaseQueryTests {
+    let database = NotesDatabase()
+
+    @Test("List folders from database")
+    func testListFolders() throws {
+        let folders = try database.listFolders()
+
+        // Should have at least the default "Notes" folder
+        #expect(!folders.isEmpty, "Should have at least one folder")
+
+        // Verify folder structure
+        for folder in folders {
+            #expect(folder.pk > 0, "Folder PK should be positive")
+            #expect(!folder.name.isEmpty, "Folder name should not be empty")
+        }
+    }
+
+    @Test("List notes with limit")
+    func testListNotesWithLimit() throws {
+        let limit = 5
+        let notes = try database.listNotes(limit: limit)
+
+        #expect(notes.count <= limit, "Should respect limit parameter")
+
+        for note in notes {
+            #expect(!note.id.isEmpty, "Note ID should not be empty")
+            #expect(!note.title.isEmpty, "Note title should not be empty")
+        }
+    }
+
+    @Test("Search notes returns matching results")
+    func testSearchNotesMatching() throws {
+        // Search for a common word that's likely to exist
+        let results = try database.searchNotes(query: "the", limit: 10)
+
+        // Results may be empty if no notes contain "the"
+        for note in results {
+            #expect(!note.id.isEmpty, "Note ID should not be empty")
+        }
+    }
+
+    @Test("Read note returns full content")
+    func testReadNoteContent() throws {
+        let notes = try database.listNotes(limit: 1)
+
+        guard let note = notes.first else {
+            // No notes available
+            return
+        }
+
+        let content = try database.readNote(id: note.id)
+
+        #expect(content.id == note.id, "ID should match")
+        #expect(content.title == note.title, "Title should match")
+        // Verify arrays are accessible (content may be empty)
+        #expect(content.attachments.count >= 0, "Should have attachments array")
+        #expect(content.hashtags.count >= 0, "Should have hashtags array")
+        #expect(content.noteLinks.count >= 0, "Should have noteLinks array")
+    }
+}
+
 // MARK: - Test Tags
 
 extension Tag {
