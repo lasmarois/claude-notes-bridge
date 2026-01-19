@@ -20,6 +20,14 @@ struct NoteContent {
     let createdAt: Date?
     let modifiedAt: Date?
     var attachments: [Attachment] = []
+    var hashtags: [String] = []
+    var noteLinks: [NoteLink] = []
+}
+
+/// A link to another note
+struct NoteLink {
+    let text: String      // Display text of the link
+    let targetId: String  // UUID of the target note
 }
 
 /// Attachment metadata

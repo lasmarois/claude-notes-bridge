@@ -241,6 +241,25 @@ class NotesAppleScript {
         _ = try runAppleScript(script)
     }
 
+    // MARK: - Read Operations
+
+    /// Get a note's HTML body via AppleScript
+    /// - Parameter id: The note ID (x-coredata URL or UUID)
+    /// - Returns: HTML content of the note
+    func getNoteBody(id: String) throws -> String {
+        let resolvedId = try resolveNoteId(id)
+
+        let script = """
+        tell application "Notes"
+            set theNote to note id "\(resolvedId)"
+            return body of theNote
+        end tell
+        """
+
+        let output = try runAppleScript(script)
+        return output.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     // MARK: - Attachment Operations
 
     /// Get the file path for an attachment

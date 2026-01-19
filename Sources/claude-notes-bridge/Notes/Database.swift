@@ -130,6 +130,13 @@ class NotesDatabase {
         // Fetch attachments for this note
         let attachments = try fetchAttachments(forNotePK: pk)
 
+        // Fetch hashtags from embedded objects
+        let hashtags = try getHashtags(forNoteId: id)
+
+        // Fetch note-to-note links from embedded objects
+        let linkTuples = try getNoteLinks(forNoteId: id)
+        let noteLinks = linkTuples.map { NoteLink(text: $0.text, targetId: $0.targetId) }
+
         var noteContent = NoteContent(
             id: id,
             title: title,
@@ -139,6 +146,8 @@ class NotesDatabase {
             modifiedAt: modified
         )
         noteContent.attachments = attachments
+        noteContent.hashtags = hashtags
+        noteContent.noteLinks = noteLinks
 
         return noteContent
     }
@@ -366,6 +375,246 @@ class NotesDatabase {
             try? executeSQL("ROLLBACK")
             throw error
         }
+    }
+
+    /// Extract hashtags from embedded objects for a note
+    /// Uses ZTYPEUTI1 and ZALTTEXT columns for accurate extraction
+    func getHashtags(forNoteId id: String) throws -> [String] {
+        try ensureOpen()
+
+        // First get the note's Z_PK
+        let pk = try getNotePK(id: id)
+
+        // Query embedded objects with hashtag UTI
+        // Check ZNOTE, ZNOTE1, and ZATTACHMENT relationships
+        let query = """
+            SELECT DISTINCT ZALTTEXT
+            FROM ZICCLOUDSYNCINGOBJECT
+            WHERE ZTYPEUTI1 = 'com.apple.notes.inlinetextattachment.hashtag'
+              AND ZALTTEXT IS NOT NULL
+              AND (ZNOTE = ? OR ZNOTE1 = ? OR ZATTACHMENT = ?)
+            """
+
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(db, query, -1, &statement, nil) == SQLITE_OK else {
+            throw NotesError.queryFailed(String(cString: sqlite3_errmsg(db)))
+        }
+        defer { sqlite3_finalize(statement) }
+
+        sqlite3_bind_int64(statement, 1, pk)
+        sqlite3_bind_int64(statement, 2, pk)
+        sqlite3_bind_int64(statement, 3, pk)
+
+        var hashtags: [String] = []
+        while sqlite3_step(statement) == SQLITE_ROW {
+            if let altText = columnString(statement, 0) {
+                // ZALTTEXT may or may not have # prefix
+                let tag = altText.hasPrefix("#") ? altText : "#\(altText)"
+                hashtags.append(tag)
+            }
+        }
+
+        return hashtags
+    }
+
+    /// Extract note-to-note links from embedded objects for a note
+    /// Returns array of (linkText, targetNoteId) tuples
+    func getNoteLinks(forNoteId id: String) throws -> [(text: String, targetId: String)] {
+        try ensureOpen()
+
+        let pk = try getNotePK(id: id)
+
+        let query = """
+            SELECT ZALTTEXT, ZTOKENCONTENTIDENTIFIER
+            FROM ZICCLOUDSYNCINGOBJECT
+            WHERE ZTYPEUTI1 = 'com.apple.notes.inlinetextattachment.link'
+              AND ZTOKENCONTENTIDENTIFIER LIKE 'applenotes:note/%'
+              AND (ZNOTE = ? OR ZNOTE1 = ? OR ZATTACHMENT = ?)
+            """
+
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(db, query, -1, &statement, nil) == SQLITE_OK else {
+            throw NotesError.queryFailed(String(cString: sqlite3_errmsg(db)))
+        }
+        defer { sqlite3_finalize(statement) }
+
+        sqlite3_bind_int64(statement, 1, pk)
+        sqlite3_bind_int64(statement, 2, pk)
+        sqlite3_bind_int64(statement, 3, pk)
+
+        var links: [(text: String, targetId: String)] = []
+        while sqlite3_step(statement) == SQLITE_ROW {
+            let linkText = columnString(statement, 0) ?? ""
+            if let tokenId = columnString(statement, 1) {
+                // Extract UUID from applenotes:note/UUID?ownerIdentifier=...
+                // Format: applenotes:note/b1e9c1aa-b884-461c-9235-0a243f309729?ownerIdentifier=...
+                if let range = tokenId.range(of: "applenotes:note/") {
+                    var targetId = String(tokenId[range.upperBound...])
+                    // Remove query parameters if present
+                    if let queryRange = targetId.range(of: "?") {
+                        targetId = String(targetId[..<queryRange.lowerBound])
+                    }
+                    links.append((text: linkText, targetId: targetId.uppercased()))
+                }
+            }
+        }
+
+        return links
+    }
+
+    /// Get the Z_PK (primary key) for a note by its UUID identifier
+    func getNotePK(id: String) throws -> Int64 {
+        try ensureOpen()
+
+        let query = """
+            SELECT Z_PK FROM ZICCLOUDSYNCINGOBJECT
+            WHERE ZIDENTIFIER = ? AND Z_ENT = 12
+            LIMIT 1
+            """
+
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(db, query, -1, &statement, nil) == SQLITE_OK else {
+            throw NotesError.queryFailed(String(cString: sqlite3_errmsg(db)))
+        }
+        defer { sqlite3_finalize(statement) }
+
+        let SQLITE_TRANSIENT = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
+        sqlite3_bind_text(statement, 1, (id as NSString).utf8String, -1, SQLITE_TRANSIENT)
+
+        guard sqlite3_step(statement) == SQLITE_ROW else {
+            throw NotesError.noteNotFound(id)
+        }
+
+        return sqlite3_column_int64(statement, 0)
+    }
+
+    /// List all unique hashtags in the database
+    /// Uses embedded objects table with ZTYPEUTI1
+    func listHashtags() throws -> [String] {
+        try ensureOpen()
+
+        let query = """
+            SELECT DISTINCT ZALTTEXT
+            FROM ZICCLOUDSYNCINGOBJECT
+            WHERE ZTYPEUTI1 = 'com.apple.notes.inlinetextattachment.hashtag'
+              AND ZALTTEXT IS NOT NULL
+            ORDER BY ZALTTEXT
+            """
+
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(db, query, -1, &statement, nil) == SQLITE_OK else {
+            throw NotesError.queryFailed(String(cString: sqlite3_errmsg(db)))
+        }
+        defer { sqlite3_finalize(statement) }
+
+        var hashtags: [String] = []
+        while sqlite3_step(statement) == SQLITE_ROW {
+            if let altText = columnString(statement, 0) {
+                // ZALTTEXT may or may not have # prefix
+                let tag = altText.hasPrefix("#") ? altText : "#\(altText)"
+                hashtags.append(tag)
+            }
+        }
+
+        return hashtags
+    }
+
+    /// List all note-to-note links in the database
+    /// Returns array of (sourceNoteId, linkText, targetNoteId) tuples
+    func listNoteLinks() throws -> [(sourceId: String, text: String, targetId: String)] {
+        try ensureOpen()
+
+        let query = """
+            SELECT
+                n.ZIDENTIFIER as source_id,
+                e.ZALTTEXT as link_text,
+                e.ZTOKENCONTENTIDENTIFIER as target_url
+            FROM ZICCLOUDSYNCINGOBJECT e
+            JOIN ZICCLOUDSYNCINGOBJECT n ON (e.ZNOTE = n.Z_PK OR e.ZNOTE1 = n.Z_PK)
+            WHERE e.ZTYPEUTI1 = 'com.apple.notes.inlinetextattachment.link'
+              AND e.ZTOKENCONTENTIDENTIFIER LIKE 'applenotes:note/%'
+              AND n.ZIDENTIFIER IS NOT NULL
+            ORDER BY n.ZMODIFICATIONDATE1 DESC
+            """
+
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(db, query, -1, &statement, nil) == SQLITE_OK else {
+            throw NotesError.queryFailed(String(cString: sqlite3_errmsg(db)))
+        }
+        defer { sqlite3_finalize(statement) }
+
+        var links: [(sourceId: String, text: String, targetId: String)] = []
+        while sqlite3_step(statement) == SQLITE_ROW {
+            let sourceId = columnString(statement, 0) ?? ""
+            let linkText = columnString(statement, 1) ?? ""
+            if let tokenId = columnString(statement, 2) {
+                if let range = tokenId.range(of: "applenotes:note/") {
+                    var targetId = String(tokenId[range.upperBound...])
+                    if let queryRange = targetId.range(of: "?") {
+                        targetId = String(targetId[..<queryRange.lowerBound])
+                    }
+                    links.append((sourceId: sourceId, text: linkText, targetId: targetId.uppercased()))
+                }
+            }
+        }
+
+        return links
+    }
+
+    /// Search notes by hashtag using embedded objects table
+    func searchNotesByHashtag(tag: String) throws -> [Note] {
+        try ensureOpen()
+
+        // Remove # prefix if present
+        let cleanTag = tag.hasPrefix("#") ? String(tag.dropFirst()) : tag
+
+        // Search using embedded objects with hashtag UTI
+        // ZALTTEXT can have # prefix or not
+        let query = """
+            SELECT DISTINCT
+                n.ZIDENTIFIER as id,
+                n.ZTITLE1 as title,
+                f.ZTITLE2 as folder,
+                n.ZCREATIONDATE1 as created,
+                n.ZMODIFICATIONDATE1 as modified
+            FROM ZICCLOUDSYNCINGOBJECT n
+            LEFT JOIN ZICCLOUDSYNCINGOBJECT f ON n.ZFOLDER = f.Z_PK
+            JOIN ZICCLOUDSYNCINGOBJECT e ON (e.ZNOTE = n.Z_PK OR e.ZNOTE1 = n.Z_PK)
+            WHERE e.ZTYPEUTI1 = 'com.apple.notes.inlinetextattachment.hashtag'
+              AND (e.ZALTTEXT = ? OR e.ZALTTEXT = ?)
+              AND n.ZTITLE1 IS NOT NULL
+            ORDER BY n.ZMODIFICATIONDATE1 DESC
+            """
+
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(db, query, -1, &statement, nil) == SQLITE_OK else {
+            throw NotesError.queryFailed(String(cString: sqlite3_errmsg(db)))
+        }
+        defer { sqlite3_finalize(statement) }
+
+        let SQLITE_TRANSIENT = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
+        // Bind both with and without # prefix
+        sqlite3_bind_text(statement, 1, (cleanTag as NSString).utf8String, -1, SQLITE_TRANSIENT)
+        sqlite3_bind_text(statement, 2, ("#\(cleanTag)" as NSString).utf8String, -1, SQLITE_TRANSIENT)
+
+        var notes: [Note] = []
+        while sqlite3_step(statement) == SQLITE_ROW {
+            let id = columnString(statement, 0) ?? ""
+            let title = columnString(statement, 1) ?? "Untitled"
+            let folder = columnString(statement, 2)
+            let created = columnDate(statement, 3)
+            let modified = columnDate(statement, 4)
+
+            notes.append(Note(
+                id: id,
+                title: title,
+                folder: folder,
+                createdAt: created,
+                modifiedAt: modified
+            ))
+        }
+
+        return notes
     }
 
     /// List available folders

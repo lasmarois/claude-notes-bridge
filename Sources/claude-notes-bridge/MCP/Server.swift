@@ -101,6 +101,11 @@ actor MCPServer {
                         "id": [
                             "type": "string",
                             "description": "The note ID (UUID)"
+                        ],
+                        "format": [
+                            "type": "string",
+                            "description": "Output format: 'plain' (default) for plain text, 'html' for HTML with formatting preserved",
+                            "enum": ["plain", "html"]
                         ]
                     ],
                     "required": ["id"]
@@ -289,6 +294,36 @@ actor MCPServer {
                     ],
                     "required": ["note_id", "file_path"]
                 ]
+            ],
+            [
+                "name": "list_hashtags",
+                "description": "List all unique hashtags used across all notes",
+                "inputSchema": [
+                    "type": "object",
+                    "properties": [:]
+                ]
+            ],
+            [
+                "name": "search_by_hashtag",
+                "description": "Find all notes containing a specific hashtag",
+                "inputSchema": [
+                    "type": "object",
+                    "properties": [
+                        "tag": [
+                            "type": "string",
+                            "description": "The hashtag to search for (with or without # prefix)"
+                        ]
+                    ],
+                    "required": ["tag"]
+                ]
+            ],
+            [
+                "name": "list_note_links",
+                "description": "List all note-to-note links in the database. Shows which notes link to other notes.",
+                "inputSchema": [
+                    "type": "object",
+                    "properties": [:]
+                ]
             ]
         ]
 
@@ -324,7 +359,26 @@ actor MCPServer {
                 guard let id = arguments["id"] as? String else {
                     throw NotesError.missingParameter("id")
                 }
-                result = try notesDB.readNote(id: id)
+                let format = arguments["format"] as? String ?? "plain"
+                var note = try notesDB.readNote(id: id)
+                if format == "html" {
+                    // Get Z_PK and construct x-coredata URL for AppleScript
+                    let pk = try notesDB.getNotePK(id: id)
+                    let coreDataId = "x-coredata://E80D5A9D-1939-4C46-B3D4-E0EF27C98CE8/ICNote/p\(pk)"
+                    let htmlBody = try notesAS.getNoteBody(id: coreDataId)
+                    var htmlNote = NoteContent(
+                        id: note.id,
+                        title: note.title,
+                        content: htmlBody,
+                        folder: note.folder,
+                        createdAt: note.createdAt,
+                        modifiedAt: note.modifiedAt
+                    )
+                    htmlNote.attachments = note.attachments
+                    htmlNote.hashtags = note.hashtags
+                    note = htmlNote
+                }
+                result = note
             case "search_notes":
                 guard let query = arguments["query"] as? String else {
                     throw NotesError.missingParameter("query")
@@ -417,6 +471,17 @@ actor MCPServer {
                 }
                 let attachmentId = try notesAS.addAttachment(noteId: noteId, filePath: filePath)
                 result = ["note_id": noteId, "attachment_id": attachmentId, "added": true]
+            case "list_hashtags":
+                let hashtags = try notesDB.listHashtags()
+                result = ["hashtags": hashtags, "count": hashtags.count] as [String: Any]
+            case "search_by_hashtag":
+                guard let tag = arguments["tag"] as? String else {
+                    throw NotesError.missingParameter("tag")
+                }
+                result = try notesDB.searchNotesByHashtag(tag: tag)
+            case "list_note_links":
+                let links = try notesDB.listNoteLinks()
+                result = ["links": links.map { ["source_id": $0.sourceId, "text": $0.text, "target_id": $0.targetId] }, "count": links.count] as [String: Any]
             default:
                 return JSONRPCResponse(
                     jsonrpc: "2.0",
@@ -484,11 +549,46 @@ actor MCPServer {
                 }
             }
 
+            if !note.hashtags.isEmpty {
+                output += "\n\nHashtags: \(note.hashtags.joined(separator: " "))"
+            }
+
+            if !note.noteLinks.isEmpty {
+                output += "\n\nNote Links (\(note.noteLinks.count)):"
+                for link in note.noteLinks {
+                    output += "\n  🔗 \(link.text)"
+                    output += "\n     Target: \(link.targetId)"
+                }
+            }
+
             return output
         } else if let actionResult = result as? [String: Any] {
             // Handle various action results
-            // Check for attachment results first (they have id but also path or added)
-            if let path = actionResult["path"] as? String {
+            // Check for hashtag list result first
+            if let hashtags = actionResult["hashtags"] as? [String] {
+                let count = actionResult["count"] as? Int ?? hashtags.count
+                let tagList = hashtags.joined(separator: "  ")
+                return "Found \(count) hashtags:\n\n\(tagList)"
+            }
+            // Check for note links result
+            else if let links = actionResult["links"] as? [[String: String]] {
+                let count = actionResult["count"] as? Int ?? links.count
+                if links.isEmpty {
+                    return "No note-to-note links found in the database."
+                }
+                var output = "Found \(count) note-to-note link(s):\n"
+                for link in links {
+                    let sourceId = link["source_id"] ?? "?"
+                    let text = link["text"] ?? "?"
+                    let targetId = link["target_id"] ?? "?"
+                    output += "\n🔗 \"\(text)\""
+                    output += "\n   Source: \(sourceId)"
+                    output += "\n   Target: \(targetId)\n"
+                }
+                return output
+            }
+            // Check for attachment results (they have id but also path or added)
+            else if let path = actionResult["path"] as? String {
                 // Get attachment result
                 let name = actionResult["name"] as? String ?? "Unknown"
                 let type = actionResult["type"] as? String ?? "Unknown"
