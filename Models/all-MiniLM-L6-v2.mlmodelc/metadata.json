@@ -1,0 +1,82 @@
+[
+  {
+    "metadataOutputVersion" : "3.0",
+    "shortDescription" : "This is a sentence-transformers model: It maps sentences & paragraphs to a 384 dimensional dense vector space and can be used for tasks like clustering or semantic search.",
+    "outputSchema" : [
+      {
+        "hasShapeFlexibility" : "0",
+        "isOptional" : "0",
+        "dataType" : "Float32",
+        "formattedType" : "MultiArray (Float32)",
+        "shortDescription" : "",
+        "shape" : "[]",
+        "name" : "embeddings",
+        "type" : "MultiArray"
+      }
+    ],
+    "storagePrecision" : "Float16",
+    "modelParameters" : [
+
+    ],
+    "author" : "See: https:\/\/huggingface.co\/sentence-transformers\/all-MiniLM-L6-v2",
+    "specificationVersion" : 6,
+    "license" : "Apache 2.0",
+    "mlProgramOperationTypeHistogram" : {
+      "Linear" : 36,
+      "Gelu" : 6,
+      "LayerNorm" : 13,
+      "SliceByIndex" : 1,
+      "Matmul" : 12,
+      "Sub" : 1,
+      "Transpose" : 24,
+      "Softmax" : 6,
+      "Mul" : 7,
+      "Cast" : 5,
+      "Reshape" : 24,
+      "Add" : 20,
+      "ExpandDims" : 2,
+      "Gather" : 1
+    },
+    "computePrecision" : "Mixed (Float16, Float32, Int32)",
+    "isUpdatable" : "0",
+    "availability" : {
+      "macOS" : "12.0",
+      "tvOS" : "15.0",
+      "visionOS" : "1.0",
+      "watchOS" : "8.0",
+      "iOS" : "15.0",
+      "macCatalyst" : "15.0"
+    },
+    "modelType" : {
+      "name" : "MLModelType_mlProgram"
+    },
+    "inputSchema" : [
+      {
+        "hasShapeFlexibility" : "0",
+        "isOptional" : "0",
+        "dataType" : "Float32",
+        "formattedType" : "MultiArray (Float32 1 × 512)",
+        "shortDescription" : "",
+        "shape" : "[1, 512]",
+        "name" : "input_ids",
+        "type" : "MultiArray"
+      },
+      {
+        "hasShapeFlexibility" : "0",
+        "isOptional" : "0",
+        "dataType" : "Float32",
+        "formattedType" : "MultiArray (Float32 1 × 512)",
+        "shortDescription" : "",
+        "shape" : "[1, 512]",
+        "name" : "attention_mask",
+        "type" : "MultiArray"
+      }
+    ],
+    "userDefinedMetadata" : {
+      "com.github.apple.coremltools.version" : "6.3.0",
+      "com.github.apple.coremltools.source" : "torch==2.0.0"
+    },
+    "generatedClassName" : "all_MiniLM_L6_v2",
+    "method" : "predict"
+  }
+]
