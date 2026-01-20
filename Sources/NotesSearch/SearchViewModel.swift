@@ -2,24 +2,27 @@ import Foundation
 import SwiftUI
 import NotesLib
 
-enum SearchMode: String, CaseIterable {
-    case basic = "Basic"
-    case fts = "Full-Text"
-    case semantic = "Semantic"
+enum SearchSource: String {
+    case basic = "Title"
+    case fts = "Content"
+    case semantic = "AI"
+    case multiple = "Multiple"
 
     var icon: String {
         switch self {
-        case .basic: return "magnifyingglass"
-        case .fts: return "doc.text.magnifyingglass"
+        case .basic: return "textformat"
+        case .fts: return "doc.text"
         case .semantic: return "brain"
+        case .multiple: return "sparkles"
         }
     }
 
-    var description: String {
+    var color: String {
         switch self {
-        case .basic: return "Search titles and snippets"
-        case .fts: return "Search all content (fast)"
-        case .semantic: return "AI-powered similarity search"
+        case .basic: return "blue"
+        case .fts: return "green"
+        case .semantic: return "purple"
+        case .multiple: return "orange"
         }
     }
 }
@@ -31,6 +34,17 @@ struct SearchResult: Identifiable, Hashable {
     let snippet: String?
     let score: Float?
     let modifiedAt: Date?
+    var sources: Set<SearchSource>
+
+    init(id: String, title: String, folder: String?, snippet: String?, score: Float?, modifiedAt: Date?, source: SearchSource) {
+        self.id = id
+        self.title = title
+        self.folder = folder
+        self.snippet = snippet
+        self.score = score
+        self.modifiedAt = modifiedAt
+        self.sources = [source]
+    }
 
     func hash(into hasher: inout Hasher) {
         hasher.combine(id)
@@ -39,12 +53,36 @@ struct SearchResult: Identifiable, Hashable {
     static func == (lhs: SearchResult, rhs: SearchResult) -> Bool {
         lhs.id == rhs.id
     }
+
+    var displaySource: SearchSource {
+        if sources.count > 1 { return .multiple }
+        return sources.first ?? .basic
+    }
+
+    var scorePercentage: Int? {
+        guard let score = score else { return nil }
+        return Int(score * 100)
+    }
+
+    var scoreLabel: String? {
+        guard let pct = scorePercentage else { return nil }
+        if pct >= 70 { return "High match" }
+        if pct >= 50 { return "Good match" }
+        if pct >= 30 { return "Partial match" }
+        return "Weak match"
+    }
+
+    /// Merge another result into this one (for deduplication)
+    mutating func merge(with other: SearchResult) {
+        sources.formUnion(other.sources)
+        // Keep snippet if we don't have one
+        // Keep the better score
+    }
 }
 
 @MainActor
 class SearchViewModel: ObservableObject {
     @Published var searchText: String = ""
-    @Published var searchMode: SearchMode = .basic
     @Published var results: [SearchResult] = []
     @Published var selectedResult: SearchResult?
     @Published var selectedNoteContent: NoteContent?
@@ -52,19 +90,53 @@ class SearchViewModel: ObservableObject {
     @Published var errorMessage: String?
     @Published var hasFullDiskAccess: Bool = true
 
+    // Search options
+    @Published var fuzzyEnabled: Bool = false
+    @Published var selectedFolder: String? = nil
+    @Published var availableFolders: [String] = []
+    @Published var minSemanticScore: Float = 0.3  // Filter out weak semantic matches
+
+    // Status - tracks which searches are running
+    @Published var searchingBasic: Bool = false
+    @Published var searchingFTS: Bool = false
+    @Published var searchingSemantic: Bool = false
+    @Published var semanticStatus: String? = nil
+
     private let database = NotesDatabase()
     private var searchIndex: SearchIndex?
     private var semanticSearch: SemanticSearch?
     private var searchTask: Task<Void, Never>?
 
+    // Track results by source for merging
+    private var resultsBySource: [SearchSource: [String: SearchResult]] = [:]
+
     init() {
-        checkPermissions()
         searchIndex = SearchIndex(notesDB: database)
         semanticSearch = SemanticSearch(notesDB: database)
+        checkPermissions()
+        loadFolders()
     }
 
     func checkPermissions() {
-        hasFullDiskAccess = Permissions.hasFullDiskAccess()
+        do {
+            _ = try database.listFolders()
+            hasFullDiskAccess = true
+        } catch {
+            hasFullDiskAccess = false
+        }
+    }
+
+    func loadFolders() {
+        do {
+            let folders = try database.listFolders()
+            availableFolders = folders.map { $0.name }.sorted()
+        } catch {
+            availableFolders = []
+        }
+    }
+
+    var isAnySearching: Bool {
+        searchingBasic || searchingFTS || searchingSemantic
     }
 
     func search() {
@@ -73,87 +145,186 @@ class SearchViewModel: ObservableObject {
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !query.isEmpty else {
             results = []
+            resultsBySource = [:]
             return
         }
 
+        // Clear previous results
+        results = []
+        resultsBySource = [:]
+        errorMessage = nil
+        semanticStatus = nil
+
+        // Run all searches in parallel
         searchTask = Task {
-            isSearching = true
-            errorMessage = nil
-
-            do {
-                switch searchMode {
-                case .basic:
-                    try await performBasicSearch(query)
-                case .fts:
-                    try await performFTSSearch(query)
-                case .semantic:
-                    try await performSemanticSearch(query)
+            await withTaskGroup(of: Void.self) { group in
+                // Basic search (fastest)
+                group.addTask { @MainActor in
+                    await self.runBasicSearch(query)
                 }
-            } catch {
-                if !Task.isCancelled {
-                    errorMessage = error.localizedDescription
-                }
-            }
 
-            if !Task.isCancelled {
-                isSearching = false
+                // FTS search (fast)
+                group.addTask { @MainActor in
+                    await self.runFTSSearch(query)
+                }
+
+                // Semantic search (slower)
+                group.addTask { @MainActor in
+                    await self.runSemanticSearch(query)
+                }
             }
         }
     }
 
-    private func performBasicSearch(_ query: String) async throws {
-        let notes = try database.searchNotes(query: query, limit: 50)
-        results = notes.map { note in
-            SearchResult(
-                id: note.id,
-                title: note.title,
-                folder: note.folder,
-                snippet: note.matchSnippet,
-                score: nil,
-                modifiedAt: note.modifiedAt
+    private func runBasicSearch(_ query: String) async {
+        searchingBasic = true
+        defer { searchingBasic = false }
+
+        do {
+            let notes = try database.searchNotes(
+                query: query,
+                limit: 30,
+                searchContent: true,
+                fuzzy: fuzzyEnabled,
+                folder: selectedFolder
             )
-        }
-    }
 
-    private func performFTSSearch(_ query: String) async throws {
-        guard let index = searchIndex else { return }
-
-        let (ftsResults, _, _) = try index.searchWithAutoRebuild(query: query, limit: 50)
-
-        // Get note metadata for each result
-        var searchResults: [SearchResult] = []
-        let allNotes = try database.listNotes(limit: 10000)
-
-        for (noteId, snippet) in ftsResults {
-            if let note = allNotes.first(where: { $0.id == noteId }) {
-                searchResults.append(SearchResult(
+            let newResults = notes.map { note in
+                SearchResult(
                     id: note.id,
                     title: note.title,
                     folder: note.folder,
-                    snippet: snippet.isEmpty ? nil : snippet,
+                    snippet: note.matchSnippet,
                     score: nil,
-                    modifiedAt: note.modifiedAt
-                ))
+                    modifiedAt: note.modifiedAt,
+                    source: .basic
+                )
+            }
+
+            mergeResults(newResults, from: .basic)
+        } catch {
+            // Basic search failed, continue with others
+        }
+    }
+
+    private func runFTSSearch(_ query: String) async {
+        guard let index = searchIndex else { return }
+        searchingFTS = true
+        defer { searchingFTS = false }
+
+        do {
+            let (ftsResults, _, _) = try index.searchWithAutoRebuild(query: query, limit: 30)
+
+            // Get note metadata
+            let allNotes = try database.listNotes(limit: 10000)
+            var newResults: [SearchResult] = []
+
+            for (noteId, snippet) in ftsResults {
+                if let note = allNotes.first(where: { $0.id == noteId }) {
+                    if let folderFilter = selectedFolder, note.folder != folderFilter {
+                        continue
+                    }
+                    newResults.append(SearchResult(
+                        id: note.id,
+                        title: note.title,
+                        folder: note.folder,
+                        snippet: snippet.isEmpty ? nil : snippet,
+                        score: nil,
+                        modifiedAt: note.modifiedAt,
+                        source: .fts
+                    ))
+                }
+            }
+
+            mergeResults(newResults, from: .fts)
+        } catch {
+            // FTS failed, continue with others
+        }
+    }
+
+    private func runSemanticSearch(_ query: String) async {
+        guard let semantic = semanticSearch else { return }
+        searchingSemantic = true
+        defer {
+            searchingSemantic = false
+            semanticStatus = nil
+        }
+
+        do {
+            let indexedCount = await semantic.indexedCount
+            if indexedCount == 0 {
+                semanticStatus = "Building AI index..."
+            } else {
+                semanticStatus = "AI searching..."
+            }
+
+            let semanticResults = try await semantic.search(query: query, limit: 20)
+
+            let filtered = semanticResults.filter { result in
+                if result.score < minSemanticScore { return false }
+                if let folderFilter = selectedFolder, result.folder != folderFilter { return false }
+                return true
+            }
+
+            let newResults = filtered.map { result in
+                SearchResult(
+                    id: result.noteId,
+                    title: result.title,
+                    folder: result.folder,
+                    snippet: nil,
+                    score: result.score,
+                    modifiedAt: nil,
+                    source: .semantic
+                )
+            }
+
+            mergeResults(newResults, from: .semantic)
+        } catch {
+            // Semantic search failed, continue with others
+        }
+    }
+
+    /// Merge new results into the combined results list
+    private func mergeResults(_ newResults: [SearchResult], from source: SearchSource) {
+        // Store results by source
+        var sourceResults: [String: SearchResult] = [:]
+        for result in newResults {
+            sourceResults[result.id] = result
+        }
+        resultsBySource[source] = sourceResults
+
+        // Rebuild combined results
+        var combined: [String: SearchResult] = [:]
+
+        for (source, sourceResults) in resultsBySource {
+            for (id, result) in sourceResults {
+                if var existing = combined[id] {
+                    existing.sources.insert(source)
+                    combined[id] = existing
+                } else {
+                    combined[id] = result
+                }
             }
         }
 
-        results = searchResults
-    }
-
-    private func performSemanticSearch(_ query: String) async throws {
-        guard let semantic = semanticSearch else { return }
-
-        let semanticResults = try await semantic.search(query: query, limit: 20)
-
-        results = semanticResults.map { result in
-            SearchResult(
-                id: result.noteId,
-                title: result.title,
-                folder: result.folder,
-                snippet: nil,
-                score: result.score,
-                modifiedAt: nil
-            )
+        // Sort: prioritize multi-source matches, then by score/date
+        results = combined.values.sorted { a, b in
+            // Multi-source wins
+            if a.sources.count != b.sources.count {
+                return a.sources.count > b.sources.count
+            }
+            // Then by semantic score if available
+            if let aScore = a.score, let bScore = b.score {
+                return aScore > bScore
+            }
+            // Then by date
+            if let aDate = a.modifiedAt, let bDate = b.modifiedAt {
+                return aDate > bDate
+            }
+            // Prefer ones with scores
+            if a.score != nil && b.score == nil { return true }
+            if b.score != nil && a.score == nil { return false }
+            return a.title < b.title
         }
     }
 
@@ -170,8 +341,6 @@ class SearchViewModel: ObservableObject {
 
     func openInNotesApp() {
         guard let result = selectedResult else { return }
-
-        // Try URL scheme first
         if let url = URL(string: "notes://showNote?identifier=\(result.id)") {
             NSWorkspace.shared.open(url)
         }

@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 import NotesLib
 
 struct ContentView: View {
@@ -16,8 +17,20 @@ struct ContentView: View {
             }
             .navigationSplitViewStyle(.balanced)
             .onAppear {
-                isSearchFocused = true
+                // Delay focus to ensure window is ready
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                    isSearchFocused = true
+                    activateApp()
+                }
             }
+        }
+    }
+
+    private func activateApp() {
+        NSApp.activate(ignoringOtherApps: true)
+        if let window = NSApp.keyWindow ?? NSApp.windows.first {
+            window.makeKey()
+            window.orderFrontRegardless()
         }
     }
 
@@ -29,13 +42,19 @@ struct ContentView: View {
 
             Divider()
 
+            // Search status indicators
+            if viewModel.isAnySearching {
+                SearchStatusView()
+                    .padding(.horizontal)
+            }
+
             // Results list
-            if viewModel.isSearching {
+            if viewModel.results.isEmpty && viewModel.isAnySearching {
                 Spacer()
                 ProgressView("Searching...")
                     .padding()
                 Spacer()
-            } else if viewModel.results.isEmpty && !viewModel.searchText.isEmpty {
+            } else if viewModel.results.isEmpty && !viewModel.searchText.isEmpty && !viewModel.isAnySearching {
                 Spacer()
                 VStack(spacing: 8) {
                     Image(systemName: "magnifyingglass")
@@ -105,53 +124,77 @@ struct SearchBarView: View {
     @FocusState.Binding var isSearchFocused: Bool
 
     var body: some View {
-        VStack(spacing: 12) {
-            HStack {
-                Image(systemName: "magnifyingglass")
-                    .foregroundColor(.secondary)
+        HStack {
+            Image(systemName: "magnifyingglass")
+                .foregroundColor(.secondary)
 
-                TextField("Search notes...", text: $viewModel.searchText)
-                    .textFieldStyle(.plain)
-                    .focused($isSearchFocused)
-                    .onSubmit {
-                        viewModel.search()
-                    }
-                    .onChange(of: viewModel.searchText) { _ in
-                        // Debounced search
-                        Task {
-                            try? await Task.sleep(for: .milliseconds(300))
-                            viewModel.search()
-                        }
-                    }
-
-                if !viewModel.searchText.isEmpty {
-                    Button(action: {
-                        viewModel.searchText = ""
-                        viewModel.results = []
-                    }) {
-                        Image(systemName: "xmark.circle.fill")
-                            .foregroundColor(.secondary)
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-            .padding(8)
-            .background(Color(nsColor: .controlBackgroundColor))
-            .cornerRadius(8)
-
-            // Search mode picker
-            Picker("Mode", selection: $viewModel.searchMode) {
-                ForEach(SearchMode.allCases, id: \.self) { mode in
-                    Label(mode.rawValue, systemImage: mode.icon)
-                        .tag(mode)
-                }
-            }
-            .pickerStyle(.segmented)
-            .onChange(of: viewModel.searchMode) { _ in
-                if !viewModel.searchText.isEmpty {
+            TextField("Search notes...", text: $viewModel.searchText)
+                .textFieldStyle(.plain)
+                .focused($isSearchFocused)
+                .onSubmit {
                     viewModel.search()
                 }
+                .onChange(of: viewModel.searchText) { _ in
+                    // Debounced search
+                    Task {
+                        try? await Task.sleep(for: .milliseconds(300))
+                        viewModel.search()
+                    }
+                }
+
+            if !viewModel.searchText.isEmpty {
+                Button(action: {
+                    viewModel.searchText = ""
+                    viewModel.results = []
+                }) {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundColor(.secondary)
+                }
+                .buttonStyle(.plain)
             }
+        }
+        .padding(8)
+        .background(Color(nsColor: .controlBackgroundColor))
+        .cornerRadius(8)
+    }
+}
+
+// MARK: - Search Status
+
+struct SearchStatusView: View {
+    @EnvironmentObject var viewModel: SearchViewModel
+
+    var body: some View {
+        HStack(spacing: 12) {
+            StatusDot(active: viewModel.searchingBasic, label: "Title", color: .blue)
+            StatusDot(active: viewModel.searchingFTS, label: "Content", color: .green)
+            StatusDot(active: viewModel.searchingSemantic, label: "AI", color: .purple)
+
+            if let status = viewModel.semanticStatus {
+                Text(status)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+
+            Spacer()
+        }
+        .padding(.vertical, 4)
+    }
+}
+
+struct StatusDot: View {
+    let active: Bool
+    let label: String
+    let color: Color
+
+    var body: some View {
+        HStack(spacing: 4) {
+            Circle()
+                .fill(active ? color : color.opacity(0.3))
+                .frame(width: 8, height: 8)
+            Text(label)
+                .font(.caption2)
+                .foregroundColor(active ? .primary : .secondary)
         }
     }
 }
@@ -179,13 +222,19 @@ struct ResultsListView: View {
 
 struct ResultRowView: View {
     let result: SearchResult
-    @EnvironmentObject var viewModel: SearchViewModel
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text(result.title)
-                .font(.headline)
-                .lineLimit(1)
+            HStack {
+                Text(result.title)
+                    .font(.headline)
+                    .lineLimit(1)
+
+                Spacer()
+
+                // Source badges
+                SourceBadge(source: result.displaySource)
+            }
 
             HStack {
                 if let folder = result.folder {
@@ -194,15 +243,15 @@ struct ResultRowView: View {
                         .foregroundColor(.secondary)
                 }
 
+                Spacer()
+
                 if let score = result.score {
-                    Spacer()
                     Text(String(format: "%.0f%%", score * 100))
                         .font(.caption)
-                        .foregroundColor(.secondary)
+                        .foregroundColor(.purple)
                 }
 
                 if let date = result.modifiedAt {
-                    Spacer()
                     Text(date, style: .date)
                         .font(.caption)
                         .foregroundColor(.secondary)
@@ -217,6 +266,33 @@ struct ResultRowView: View {
             }
         }
         .padding(.vertical, 4)
+    }
+}
+
+struct SourceBadge: View {
+    let source: SearchSource
+
+    var color: Color {
+        switch source {
+        case .basic: return .blue
+        case .fts: return .green
+        case .semantic: return .purple
+        case .multiple: return .orange
+        }
+    }
+
+    var body: some View {
+        HStack(spacing: 2) {
+            Image(systemName: source.icon)
+                .font(.caption2)
+            Text(source.rawValue)
+                .font(.caption2)
+        }
+        .padding(.horizontal, 6)
+        .padding(.vertical, 2)
+        .background(color.opacity(0.15))
+        .foregroundColor(color)
+        .cornerRadius(4)
     }
 }
 
