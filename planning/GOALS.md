@@ -15,6 +15,7 @@ Single source of truth for project goals. Only ONE goal can be `in_progress` at 
 | goal-7 | M6.5: Rich Text Support (typography, fonts, colors, emojis, links, tags) | `iced` |
 | goal-8 | M6.6: Integration Testing (end-to-end tests, edge cases, round-trips) | `completed` |
 | goal-9 | M7: Enhanced Search (fuzzy, multi-term, context search, filters) | `in_progress` |
+| goal-10 | Testing: Unit and integration tests for search features | `pending` |
 
 ## Status Legend
 
