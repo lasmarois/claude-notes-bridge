@@ -18,6 +18,7 @@ Single source of truth for project goals. Only ONE goal can be `in_progress` at 
 | goal-10 | Testing: Unit and integration tests for search features | `completed` |
 | goal-11 | M8: CLI Interface (help, version, subcommands, errors) | `completed` |
 | goal-12 | M9: Search UI (SwiftUI app for visual note search) | `completed` |
+| goal-13 | M10: Import/Export (Markdown, JSON, batch operations) | `in_progress` |
 
 ## Status Legend
 

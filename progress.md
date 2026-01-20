@@ -1,28 +1,33 @@
-# Goal-12: Progress Log
+# Progress Log - Goal-13 (M10: Import/Export)
 
-## Session: 2026-01-20 (continued)
+## Session 1: Planning & Design
 
-### Completed Today
-1. **Unified Streaming Search** - All search engines run in parallel
-2. **Source Badges** - Show which search found each result
-3. **Keyboard Navigation** - ↑/↓ arrows, Enter, Escape
-4. **Auto-scroll** - List scrolls to keep selection visible
-5. **Build Instructions** - Added `.claude/rules/build.md`
+### Completed
+- [x] Brainstorming session - defined requirements
+- [x] Reviewed codebase for existing infrastructure
+- [x] Created task_plan.md with phases
+- [x] Documented findings in findings.md
 
-### Now Working On
-**Rich Text Preview** - Render notes with proper formatting (titles, headings, code blocks)
+### Key Decisions
+1. **Use cases**: Backup, Migration, Automation, Sharing
+2. **Format**: Standard CommonMark with YAML frontmatter
+3. **Conflicts**: Interactive prompts with bulk options
+4. **Attachments**: Hybrid directory structure, optional
+5. **JSON**: Configurable (minimal/full)
+6. **CLI**: Subcommands (export, import)
 
-### Investigation Findings
-- Protobuf stores `attribute_run` (field 5) with style info
-- Style types: 0=body, 1=title, 2=heading, 3=subheading, 4=monospaced
-- Need to enhance NoteDecoder to extract these
-- Will convert to HTML and render with WKWebView
+### Next Steps
+- Phase 1: Create Export infrastructure
+  - NoteFormatter protocol
+  - MarkdownFormatter
+  - JSONFormatter
+  - NotesExporter
 
 ## 5-Question Reboot Check
 | Question | Answer |
 |----------|--------|
-| Where am I? | Phase 5: Rich Text Preview |
-| Where am I going? | Styled note preview matching Notes.app |
-| What's the goal? | Visual search with formatted note preview |
-| What have I learned? | Protobuf has style info in attribute_run |
-| What have I done? | Keyboard nav, unified search, investigating rich text |
+| Where am I? | Goal-13 Phase 1 - Ready to implement export |
+| Where am I going? | Export single note to Markdown/JSON |
+| What's the goal? | Full import/export for backup, migration, sharing |
+| What have I learned? | StyledNoteContent is best for Markdown export, existing MarkdownConverter handles import |
+| What have I done? | Brainstorming, codebase review, planning |

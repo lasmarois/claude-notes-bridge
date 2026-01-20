@@ -1,89 +1,148 @@
-# Goal-12: Search UI (M9) - Rich Text Preview
+# Goal-13: Import/Export (M10)
 
 ## Objective
-Add rich text rendering to the note preview to match Apple Notes appearance.
+Add import/export capabilities for notes in Markdown and JSON formats.
 
-## Current Phase
-Phase 5: Rich Text Preview (in progress)
+## Design Decisions (from brainstorming)
+
+### Use Cases
+All of: Backup, Migration, Automation, Sharing
+
+### Markdown Format
+- Standard CommonMark for maximum compatibility
+- Extensible design for future app-specific formats (Obsidian, Bear)
+- YAML frontmatter for metadata (round-trip compatible)
+
+### Conflict Handling
+- Interactive prompt by default (`--on-conflict ask`)
+- Options: skip, replace, duplicate, ask
+- Bulk decisions: all-skip, all-replace during prompts
+
+### Attachments
+- Hybrid directory structure (Option C)
+- Optional via `--no-attachments` flag
+- Structure:
+  ```
+  export/
+  ├── Folder Name/
+  │   └── Note Title.md
+  └── attachments/
+      └── Folder Name/
+          └── Note Title/
+              └── image.png
+  ```
+
+### JSON Export
+- Configurable: minimal by default
+- Flags: `--include-html`, `--full`
+
+### CLI Style
+- Subcommands: `export`, `import`
+
+---
 
 ## Phases
 
-### Phase 1: Project Setup ✅
-- [x] Add new macOS app target to Package.swift
-- [x] Create basic SwiftUI app structure
-- [x] Configure entitlements (Full Disk Access check)
+### Phase 1: Export Infrastructure
+- [ ] Create `Sources/NotesLib/Export/` directory
+- [ ] `NoteFormatter` protocol (pluggable formatters)
+- [ ] `MarkdownFormatter` - StyledNoteContent → Markdown
+- [ ] `JSONFormatter` - NoteContent → JSON
+- [ ] `NotesExporter` - orchestrates export
 
-### Phase 2: Search Interface ✅
-- [x] Search bar with debounced input
-- [x] Search mode selector → unified search
-- [x] Results list with note title, folder, date
-- [x] Source badges (Title/Content/AI/Multiple)
+### Phase 2: Export CLI
+- [ ] Add `Export` subcommand to main.swift
+- [ ] Single note export (stdout or file)
+- [ ] Format selection: `--format md|json`
+- [ ] JSON options: `--include-html`, `--full`
+- [ ] Markdown options: `--no-frontmatter`
 
-### Phase 3: Note Preview ✅
-- [x] Split view: results | preview
-- [x] Render note content (plain text)
-- [x] Show metadata (folder, dates, hashtags)
+### Phase 3: Batch Export
+- [ ] `--folder <name>` - export all notes in folder
+- [ ] `--all` - export all notes
+- [ ] `-o <directory>` - output directory
+- [ ] `--no-attachments` - skip attachment copying
+- [ ] Preserve folder structure
 
-### Phase 4: Actions & Polish ✅
-- [x] "Open in Notes.app" button
-- [x] Copy note ID/content
-- [x] Keyboard navigation (↑/↓, Enter, Escape)
-- [x] Auto-scroll to selected result
-- [x] Dark mode support
+### Phase 4: Import Infrastructure
+- [ ] Create `Sources/NotesLib/Import/` directory
+- [ ] `FrontmatterParser` - extract YAML metadata
+- [ ] `NotesImporter` - file → AppleScript create
+- [ ] Conflict detection and resolution
 
-### Phase 5: Rich Text Preview (in progress)
-- [ ] Enhance NoteDecoder to extract attribute_runs from protobuf
-- [ ] Create StyledNoteContent struct with text + style info
-- [ ] Add HTML conversion from styled content
-- [ ] Update NoteContent model with htmlContent field
-- [ ] Replace Text view with WKWebView for HTML rendering
-- [ ] Style HTML to match Notes.app appearance
+### Phase 5: Import CLI
+- [ ] Add `Import` subcommand
+- [ ] Single file: `import note.md`
+- [ ] `--folder <name>` - target folder
+- [ ] `--on-conflict` - skip|replace|duplicate|ask
+- [ ] `--dry-run` - preview without executing
+
+### Phase 6: Batch Import
+- [ ] `--dir <path>` - import directory
+- [ ] Create folders matching structure
+- [ ] Interactive conflict resolution
+
+### Phase 7: Tests
+- [ ] MarkdownFormatter unit tests
+- [ ] FrontmatterParser unit tests
+- [ ] Export → Import round-trip test
+- [ ] Batch export structure tests
+
+---
+
+## CLI Commands
+
+### Export
+```bash
+# Single note
+notes-bridge export <note-id> --format md              # stdout
+notes-bridge export <note-id> --format md -o note.md   # file
+notes-bridge export <note-id> --format json --full     # full JSON
+
+# Batch
+notes-bridge export --folder "Work" -o ./backup/
+notes-bridge export --all -o ./backup/ --no-attachments
+```
+
+### Import
+```bash
+# Single file
+notes-bridge import note.md --folder "Work"
+
+# Batch
+notes-bridge import --dir ./notes/ --folder "Imported"
+notes-bridge import --dir ./notes/ --on-conflict skip
+```
+
+---
 
 ## Architecture
 
-### Protobuf Structure (from Encoder.swift)
 ```
-NoteStoreProto {
-  document(2) {
-    note(3) {
-      note_text(2): String
-      attribute_run(5)[]: {
-        length(1): Int
-        paragraph_style(2): {
-          style_type(1): Int  // 0=body, 1=title, 2=heading, 3=subheading, 4=monospaced
-          alignment(2): Int
-        }
-      }
-    }
-  }
+NotesLib/
+├── Export/
+│   ├── NotesExporter.swift       # Core export logic
+│   ├── NoteFormatter.swift       # Protocol
+│   ├── MarkdownFormatter.swift   # StyledNoteContent → Markdown
+│   └── JSONFormatter.swift       # NoteContent → JSON
+└── Import/
+    ├── NotesImporter.swift       # Core import logic
+    └── FrontmatterParser.swift   # YAML extraction
+```
+
+### Key Design: NoteFormatter Protocol
+```swift
+protocol NoteFormatter {
+    func format(_ note: NoteContent, options: ExportOptions) throws -> String
 }
 ```
+Allows future Obsidian/Bear formatters without changing core logic.
 
-### Style Types
-| Value | Style |
-|-------|-------|
-| 0 | Body (normal text) |
-| 1 | Title |
-| 2 | Heading |
-| 3 | Subheading |
-| 4 | Monospaced (code) |
-| 100 | Checkbox unchecked |
-| 101 | Checkbox checked |
+---
 
-### Implementation Plan
-1. **NoteDecoder** - Add `decodeStyled()` method returning (text, attributeRuns)
-2. **StyledContent** - New struct holding text + runs
-3. **HTMLRenderer** - Convert styled content to HTML
-4. **NoteContent** - Add optional `htmlContent` field
-5. **NotePreviewView** - Use WKWebView when HTML available
+## Codebase Notes
 
-## Decisions Made
-| Decision | Rationale |
-|----------|-----------|
-| Use WKWebView for HTML | Native rendering, supports all styling |
-| Extract styles from protobuf | Database has all info, just need to parse |
-| Keep plain text fallback | Graceful degradation if parsing fails |
-
-## Errors Encountered
-| Error | Attempt | Resolution |
-|-------|---------|------------|
+- **Existing MarkdownConverter**: Converts Markdown → HTML (for import)
+- **CLI structure**: All commands in `main.swift`, uses ArgumentParser
+- **StyledNoteContent**: Has structured text/attributeRuns/tables (good for export)
+- **readNote()**: Returns `htmlContent` and plain `content`
