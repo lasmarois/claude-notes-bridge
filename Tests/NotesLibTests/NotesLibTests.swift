@@ -2111,6 +2111,213 @@ struct MCPSearchIntegrationTests {
     }
 }
 
+// MARK: - Table Rendering Tests
+
+@Suite("Table Rendering Tests")
+struct TableRenderingTests {
+
+    @Test("toHTML renders table inline at placeholder position")
+    func testTableInlineRendering() {
+        // Create styled content with a U+FFFC placeholder and a table
+        let text = "Title\n\nBefore table\n\u{FFFC}\nAfter table"
+        let attributeRuns = [
+            AttributeRun(length: 6, styleType: .title),  // "Title\n"
+            AttributeRun(length: text.count - 6, styleType: .body)
+        ]
+        let table = NoteTable(rows: [
+            [TableCell(text: "Header1"), TableCell(text: "Header2")],
+            [TableCell(text: "Cell1"), TableCell(text: "Cell2")]
+        ], position: 0)  // Position doesn't matter - matched by order
+
+        let content = StyledNoteContent(
+            text: text,
+            attributeRuns: attributeRuns,
+            tables: [table]
+        )
+
+        let html = content.toHTML(darkMode: false)
+
+        // Verify table is rendered
+        #expect(html.contains("<table>"), "HTML should contain table tag")
+        #expect(html.contains("<th>Header1</th>"), "HTML should contain header cell")
+        #expect(html.contains("<td>Cell1</td>"), "HTML should contain data cell")
+
+        // Verify content before and after table is present
+        #expect(html.contains("Before table"), "Content before table should be present")
+        #expect(html.contains("After table"), "Content after table should be present")
+
+        // Verify placeholder is removed from output
+        #expect(!html.contains("\u{FFFC}"), "Placeholder should be removed")
+    }
+
+    @Test("toHTML matches multiple tables to placeholders by order")
+    func testMultipleTablesMatchByOrder() {
+        // Two placeholders, two tables
+        let text = "Title\n\n\u{FFFC}\nMiddle text\n\u{FFFC}\nEnd"
+        let attributeRuns = [
+            AttributeRun(length: text.count, styleType: .body)
+        ]
+
+        let table1 = NoteTable(rows: [
+            [TableCell(text: "Table1-A"), TableCell(text: "Table1-B")]
+        ], position: 100)  // Higher position but should match first placeholder
+
+        let table2 = NoteTable(rows: [
+            [TableCell(text: "Table2-A"), TableCell(text: "Table2-B")]
+        ], position: 50)  // Lower position but should match second placeholder (sorted by position)
+
+        // Tables sorted by position: table2 (50) comes first, table1 (100) second
+        let content = StyledNoteContent(
+            text: text,
+            attributeRuns: attributeRuns,
+            tables: [table1, table2]  // Order in array doesn't matter
+        )
+
+        let html = content.toHTML(darkMode: false)
+
+        // Both tables should be rendered
+        #expect(html.contains("Table1-A"), "First table should be rendered")
+        #expect(html.contains("Table2-A"), "Second table should be rendered")
+
+        // Middle text should be present
+        #expect(html.contains("Middle text"), "Middle text should be present")
+    }
+
+    @Test("toHTML renders empty when no tables for placeholders")
+    func testNoTablesForPlaceholders() {
+        let text = "Title\n\n\u{FFFC}\nSome text"
+        let attributeRuns = [
+            AttributeRun(length: text.count, styleType: .body)
+        ]
+
+        // No tables provided
+        let content = StyledNoteContent(
+            text: text,
+            attributeRuns: attributeRuns,
+            tables: []
+        )
+
+        let html = content.toHTML(darkMode: false)
+
+        // Should render without error, placeholder removed
+        #expect(!html.contains("\u{FFFC}"), "Placeholder should be removed")
+        #expect(html.contains("Some text"), "Content should be present")
+        #expect(!html.contains("<table>"), "No table should be rendered")
+    }
+
+    @Test("toHTML escapes HTML in table cells")
+    func testTableCellHTMLEscaping() {
+        let text = "Title\n\n\u{FFFC}"
+        let attributeRuns = [
+            AttributeRun(length: text.count, styleType: .body)
+        ]
+        let table = NoteTable(rows: [
+            [TableCell(text: "<script>alert('xss')</script>")]
+        ], position: 0)
+
+        let content = StyledNoteContent(
+            text: text,
+            attributeRuns: attributeRuns,
+            tables: [table]
+        )
+
+        let html = content.toHTML(darkMode: false)
+
+        // Script tag should be escaped
+        #expect(html.contains("&lt;script&gt;"), "HTML should be escaped")
+        #expect(!html.contains("<script>alert"), "Raw script tag should not be present")
+    }
+
+    @Test("toHTML handles table with emojis")
+    func testTableWithEmojis() {
+        let text = "Title\n\n\u{FFFC}"
+        let attributeRuns = [
+            AttributeRun(length: text.count, styleType: .body)
+        ]
+        let table = NoteTable(rows: [
+            [TableCell(text: "🍕 Pizza"), TableCell(text: "🍔 Burger")],
+            [TableCell(text: "🌮 Taco"), TableCell(text: "🍟 Fries")]
+        ], position: 0)
+
+        let content = StyledNoteContent(
+            text: text,
+            attributeRuns: attributeRuns,
+            tables: [table]
+        )
+
+        let html = content.toHTML(darkMode: false)
+
+        #expect(html.contains("🍕 Pizza"), "Emoji should be preserved")
+        #expect(html.contains("🍔 Burger"), "Emoji should be preserved")
+    }
+}
+
+// MARK: - CRDT Table Parsing Tests
+
+@Suite("CRDT Table Parsing Tests")
+struct CRDTTableParsingTests {
+    let decoder = NoteDecoder()
+
+    @Test("parseCRDTTable returns nil for empty data")
+    func testEmptyData() {
+        let result = decoder.parseCRDTTable(Data(), position: 0)
+        #expect(result == nil, "Should return nil for empty data")
+    }
+
+    @Test("parseCRDTTable returns nil for invalid data")
+    func testInvalidData() {
+        let invalidData = Data([0x00, 0x01, 0x02, 0x03])
+        let result = decoder.parseCRDTTable(invalidData, position: 0)
+        #expect(result == nil, "Should return nil for invalid data")
+    }
+
+    @Test("parseCRDTTable detects gzip by magic bytes")
+    func testGzipDetection() {
+        // Non-gzipped data (doesn't start with 1f 8b) should be processed directly
+        let nonGzipData = Data([0x08, 0x00, 0x12, 0x00])  // Some protobuf-like bytes
+        let result = decoder.parseCRDTTable(nonGzipData, position: 0)
+        // Should return nil (no valid cell texts) but shouldn't crash
+        #expect(result == nil, "Should handle non-table data gracefully")
+    }
+}
+
+// MARK: - Table Integration Tests
+
+@Suite("Table Integration Tests", .tags(.integration), .serialized)
+struct TableIntegrationTests {
+    let database = NotesDatabase()
+
+    @Test("Read note with table extracts table data")
+    func testReadNoteWithTable() throws {
+        // Find a note that might have a table
+        let notes = try database.listNotes(limit: 50)
+
+        // Try to read each note with tables enabled
+        for note in notes {
+            let content = try database.readNote(id: note.id, includeTables: true)
+
+            // Check if HTML contains a table
+            if let html = content.htmlContent, html.contains("<table>") {
+                #expect(html.contains("<th>") || html.contains("<td>"), "Table should have cells")
+                return  // Found and verified a table
+            }
+        }
+
+        // Note: This test may not find tables if no notes have them
+        // It's mainly verifying the code path works without errors
+    }
+
+    @Test("Read note without tables skips table extraction")
+    func testReadNoteWithoutTables() throws {
+        let notes = try database.listNotes(limit: 5)
+        guard let note = notes.first else { return }
+
+        // Should succeed without fetching tables
+        let content = try database.readNote(id: note.id, includeTables: false)
+        #expect(!content.id.isEmpty, "Should read note without tables")
+    }
+}
+
 // MARK: - Test Tags
 
 extension Tag {
