@@ -116,15 +116,15 @@ The original goal-1 research incorrectly stated AppleScript couldn't update/dele
 - [x] Semantic search (MiniLM AI embeddings, Core ML)
 - [x] Tools: `search_notes`, `fts_search`, `build_search_index`, `semantic_search`
 
-### M8: CLI Interface `[committed]`
-- [ ] `--help` with usage documentation
-- [ ] `--version` flag
-- [ ] Subcommands: `serve` (MCP), `search`, `list`, `export`, `import`
-- [ ] Graceful error messages (e.g., missing Full Disk Access)
-- [ ] Colored terminal output
-- [ ] Exit codes for scripting
+### M8: CLI Interface `[committed]` ✅
+- [x] `--help` with usage documentation
+- [x] `--version` flag
+- [x] Subcommands: `serve` (MCP), `search`, `list`, `read`, `folders`
+- [x] Graceful error messages (e.g., missing Full Disk Access)
+- [x] Colored terminal output
+- [x] Exit codes for scripting
 
-### M9: Search UI `[likely]`
+### M9: Search UI `[committed]`
 - [ ] SwiftUI app for visual search
 - [ ] Real-time search results (FTS + semantic)
 - [ ] Preview note content

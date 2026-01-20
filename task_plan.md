@@ -1,47 +1,61 @@
-# Goal-11: CLI Interface
+# Goal-12: Search UI (M9)
 
 ## Objective
-Replace ad-hoc argument handling with a proper CLI using Swift Argument Parser. Add subcommands for common operations, helpful error messages, and scripting support.
+Create a SwiftUI macOS app for visually searching Apple Notes with real-time results, note preview, and the ability to open notes in Notes.app.
 
 ## Current Phase
-Phase 1-3 COMPLETE
+Phase 1-3 COMPLETE, Phase 4 in progress
 
 ## Phases
 
-### Phase 1: Swift Argument Parser Setup
-- [x] Add swift-argument-parser dependency to Package.swift
-- [x] Create root command structure
-- [x] Migrate `--help` and `--version` to ArgumentParser
-- [x] Remove old ad-hoc argument handling
+### Phase 1: Project Setup
+- [x] Add new macOS app target to Package.swift
+- [x] Create basic SwiftUI app structure
+- [ ] Set up app icon and metadata (deferred)
+- [x] Configure entitlements (Full Disk Access check)
 - **Status:** complete
 
-### Phase 2: Subcommands
-- [x] `serve` - Start MCP server (default behavior)
-- [x] `search <query>` - Search notes from CLI (with --semantic, --fts, --fuzzy, --content)
-- [x] `list [--folder]` - List notes
-- [x] `read <id>` - Read a note (with --json)
-- [x] `folders` - List folders
+### Phase 2: Search Interface
+- [x] Search bar with debounced input
+- [x] Search mode selector (basic, FTS, semantic)
+- [x] Results list with note title, folder, date
+- [x] Loading indicator for semantic search
 - **Status:** complete
 
-### Phase 3: Error Handling & UX
-- [x] Graceful Full Disk Access error with instructions
-- [x] Colored terminal output (titles, errors, success)
-- [x] Proper exit codes (0=success, 1=error, 2=permission, 3=not found)
-- [ ] Progress indicators for slow operations (deferred)
+### Phase 3: Note Preview
+- [x] Split view: results | preview
+- [x] Render note content (plain text)
+- [x] Show metadata (folder, dates, hashtags)
+- [ ] Syntax highlighting for code blocks (deferred)
 - **Status:** complete
 
-### Phase 4: Export/Import Subcommands (Preview for M10)
-- [ ] `export <id> [--format md|json]` - Export single note
-- [ ] `export --folder <name> --output <dir>` - Batch export
-- [ ] `import <file>` - Import from Markdown
-- **Status:** pending
+### Phase 4: Actions & Polish
+- [x] "Open in Notes.app" button
+- [x] Copy note ID/content
+- [ ] Keyboard navigation (up/down arrows, enter)
+- [ ] Remember window position/size
+- [x] Dark mode support (automatic via SwiftUI)
+- **Status:** in progress
+
+## Architecture
+
+```
+NotesSearchApp/
+├── NotesSearchApp.swift      # @main App
+├── ContentView.swift         # Main split view
+├── SearchBar.swift           # Search input + mode
+├── ResultsList.swift         # List of search results
+├── NotePreview.swift         # Note content preview
+├── SearchViewModel.swift     # Business logic
+└── Models.swift              # View-specific models
+```
 
 ## Decisions Made
 | Decision | Rationale |
 |----------|-----------|
-| Use swift-argument-parser | Industry standard, declarative, auto-generates help |
-| `serve` as default | Backward compatible with existing MCP usage |
-| Keep test commands internal | Use `--test-*` flags only in debug builds |
+| Separate app target | Keep MCP server and UI independent |
+| SwiftUI | Modern, declarative, native macOS feel |
+| Split view | Standard macOS pattern for search apps |
 
 ## Errors Encountered
 | Error | Attempt | Resolution |

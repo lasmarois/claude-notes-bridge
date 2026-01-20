@@ -8,6 +8,7 @@ let package = Package(
     ],
     products: [
         .executable(name: "claude-notes-bridge", targets: ["claude-notes-bridge"]),
+        .executable(name: "notes-search", targets: ["NotesSearch"]),
         .executable(name: "benchmark", targets: ["Benchmark"]),
         .library(name: "NotesLib", targets: ["NotesLib"])
     ],
@@ -42,6 +43,12 @@ let package = Package(
                 .product(name: "ArgumentParser", package: "swift-argument-parser")
             ],
             path: "Sources/claude-notes-bridge"
+        ),
+        // SwiftUI Search App
+        .executableTarget(
+            name: "NotesSearch",
+            dependencies: ["NotesLib"],
+            path: "Sources/NotesSearch"
         ),
         // Benchmark tool
         .executableTarget(
