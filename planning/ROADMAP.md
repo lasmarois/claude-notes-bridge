@@ -97,11 +97,13 @@ The original goal-1 research incorrectly stated AppleScript couldn't update/dele
 - [x] Note links: read-only (list, extract)
 - [x] **Limitation:** Native paragraph styles (Title/Heading/Subheading in Format menu) cannot be set programmatically
 
-### M6.6: Integration Testing `[likely]`
-- [ ] End-to-end test suite
-- [ ] Round-trip tests (create → read → update → verify)
-- [ ] Edge cases: special characters, unicode, large notes
-- [ ] iCloud sync verification
+### M6.6: Integration Testing `[committed]` ✅
+- [x] End-to-end test suite (Goal-8 + Goal-10)
+- [x] Round-trip tests (create → read → update → verify)
+- [x] Edge cases: special characters, unicode, large notes
+- [x] Table rendering tests
+- [x] Search feature unit tests (44 tests)
+- [ ] iCloud sync verification (manual only, not automated)
 
 ### M7: Enhanced Search `[committed]` ✅
 - [x] Case-insensitive search
@@ -114,17 +116,35 @@ The original goal-1 research incorrectly stated AppleScript couldn't update/dele
 - [x] Semantic search (MiniLM AI embeddings, Core ML)
 - [x] Tools: `search_notes`, `fts_search`, `build_search_index`, `semantic_search`
 
-### M8: Production Readiness `[exploratory]`
+### M8: CLI Interface `[committed]`
+- [ ] `--help` with usage documentation
+- [ ] `--version` flag
+- [ ] Subcommands: `serve` (MCP), `search`, `list`, `export`, `import`
+- [ ] Graceful error messages (e.g., missing Full Disk Access)
+- [ ] Colored terminal output
+- [ ] Exit codes for scripting
+
+### M9: Search UI `[likely]`
+- [ ] SwiftUI app for visual search
+- [ ] Real-time search results (FTS + semantic)
+- [ ] Preview note content
+- [ ] Open note in Notes.app
+- [ ] Keyboard navigation
+
+### M10: Import/Export `[likely]`
+- [ ] Export notes to Markdown files
+- [ ] Export to JSON (structured data)
+- [ ] Import from Markdown
+- [ ] Batch export (folder or all notes)
+- [ ] Preserve folder structure
+
+### M11: Distribution `[exploratory]`
 - [ ] Code signing & notarization
-- [ ] Error handling & logging
-- [ ] Performance optimization
+- [ ] Homebrew formula
+- [ ] GitHub releases with signed binaries
 - [ ] User documentation
 
-### M9: Distribution `[exploratory]`
-- [ ] Homebrew formula or similar
-- [ ] GitHub releases with signed binaries
-
-### M10: Backward Compatibility `[exploratory]`
+### M12: Backward Compatibility `[exploratory]`
 - [ ] Support macOS 12 (Monterey) — async/await floor
 - [ ] Support macOS 10.15-11 — feature flags for async/await
 - [ ] Graceful degradation: disable semantic search on older systems
@@ -170,3 +190,5 @@ The original goal-1 research incorrectly stated AppleScript couldn't update/dele
 | 2026-01-19 | **M6.5 complete:** Rich text support. Markdown-to-HTML conversion, hashtags/links read-only. Native paragraph styles documented as platform limitation. |
 | 2026-01-19 | **M7 complete:** Enhanced search. FTS5 index, fuzzy matching, multi-term, filters, semantic search with MiniLM Core ML. |
 | 2026-01-19 | Added M10 (Backward Compatibility) for supporting older macOS versions. Renumbered M8→M9 (Distribution). |
+| 2026-01-20 | **M6.6 complete:** Integration testing done via Goal-8 (CRUD, edge cases, tables) + Goal-10 (44 search tests). |
+| 2026-01-20 | **Roadmap expansion:** Added M8 (CLI Interface), M9 (Search UI), M10 (Import/Export). Renumbered Distribution→M11, Backward Compat→M12. |

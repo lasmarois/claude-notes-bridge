@@ -16,6 +16,7 @@ Single source of truth for project goals. Only ONE goal can be `in_progress` at 
 | goal-8 | M6.6: Integration Testing (end-to-end tests, edge cases, round-trips, tables) | `completed` |
 | goal-9 | M7: Enhanced Search (fuzzy, multi-term, context search, filters) | `completed` |
 | goal-10 | Testing: Unit and integration tests for search features | `completed` |
+| goal-11 | M8: CLI Interface (help, version, subcommands, errors) | `in_progress` |
 
 ## Status Legend
 
