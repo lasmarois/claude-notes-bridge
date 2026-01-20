@@ -189,10 +189,21 @@ public struct StyledNoteContent {
             currentOffset += run.length
         }
 
-        // Build a map of character position -> table for inline insertion
+        // Find all U+FFFC placeholder positions and match with tables by order
+        var fffcPositions: [Int] = []
+        for (i, char) in text.enumerated() {
+            if char == "\u{FFFC}" {
+                fffcPositions.append(i)
+            }
+        }
+
+        // Sort tables by position and match to placeholders in order
+        let sortedTables = tables.sorted { $0.position < $1.position }
         var tableAtPosition: [Int: NoteTable] = [:]
-        for table in tables {
-            tableAtPosition[table.position] = table
+        for (index, fffcPos) in fffcPositions.enumerated() {
+            if index < sortedTables.count {
+                tableAtPosition[fffcPos] = sortedTables[index]
+            }
         }
 
         // Helper to render a table as HTML
@@ -654,8 +665,17 @@ public class NoteDecoder {
 
     /// Parse a CRDT table from ZMERGEABLEDATA1
     public func parseCRDTTable(_ data: Data, position: Int = 0) -> NoteTable? {
+        // Decompress if gzipped (starts with 1f 8b)
+        let decompressed: Data
+        if data.count >= 2 && data[0] == 0x1f && data[1] == 0x8b {
+            guard let d = try? decompress(data) else { return nil }
+            decompressed = d
+        } else {
+            decompressed = data
+        }
+
         var cellTexts: [String] = []
-        extractField10Texts(from: data, into: &cellTexts, depth: 0)
+        extractField10Texts(from: decompressed, into: &cellTexts, depth: 0)
 
         guard !cellTexts.isEmpty else { return nil }
 
