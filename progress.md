@@ -79,8 +79,33 @@
 ## 5-Question Reboot Check
 | Question | Answer |
 |----------|--------|
-| Where am I? | Phase 2 - Basic Tool Tests |
-| Where am I going? | Add more unit tests, then integration tests |
+| Where am I? | All phases complete, adding table tests |
+| Where am I going? | Archive goal-8 |
 | What's the goal? | Comprehensive integration testing |
-| What have I learned? | swift-testing works without Xcode |
-| What have I done? | Refactored to library, 5 tests passing |
+| What have I learned? | swift-testing works without Xcode, tables work |
+| What have I done? | 63 tests passing including table tests |
+
+---
+
+## Session: 2026-01-20 (Table Tests)
+
+### Added Table Tests
+- 6 unit tests in MarkdownConverterTests:
+  - Convert simple table
+  - Table with three columns
+  - Table preserves surrounding content
+  - Table separator detection (including alignment markers)
+  - Non-table pipe characters preserved
+  - Table has proper styling
+- 1 integration test:
+  - Create note with markdown table → verify native table created
+
+### Test Results
+```
+✔ Test run with 63 tests in 10 suites passed after 26.776 seconds.
+```
+
+All table tests pass. Tables are correctly:
+- Parsed from markdown syntax
+- Converted to HTML table format
+- Created as native Notes.app tables via AppleScript

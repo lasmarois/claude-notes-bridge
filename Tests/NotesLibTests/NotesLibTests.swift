@@ -208,6 +208,109 @@ struct MarkdownConverterTests {
         #expect(result.contains("• List item"))
         #expect(result.contains("▎"))  // Quote marker
     }
+
+    // MARK: - Table Tests
+
+    @Test("Convert simple table")
+    func testSimpleTable() {
+        let markdown = """
+        | Name | Age |
+        |------|-----|
+        | Alice | 30 |
+        | Bob | 25 |
+        """
+        let result = converter.convert(markdown)
+        #expect(result.contains("<table"))
+        #expect(result.contains("<tbody>"))
+        #expect(result.contains("<tr>"))
+        #expect(result.contains("<td"))
+        #expect(result.contains("<b>Name</b>"))  // Header bold
+        #expect(result.contains("<b>Age</b>"))   // Header bold
+        #expect(result.contains("Alice"))
+        #expect(result.contains("30"))
+        #expect(result.contains("Bob"))
+        #expect(result.contains("25"))
+    }
+
+    @Test("Table with three columns")
+    func testThreeColumnTable() {
+        let markdown = """
+        | Name | Age | City |
+        |------|-----|------|
+        | Alice | 30 | NYC |
+        | Bob | 25 | LA |
+        """
+        let result = converter.convert(markdown)
+        #expect(result.contains("<b>Name</b>"))
+        #expect(result.contains("<b>Age</b>"))
+        #expect(result.contains("<b>City</b>"))
+        #expect(result.contains("NYC"))
+        #expect(result.contains("LA"))
+    }
+
+    @Test("Table preserves surrounding content")
+    func testTableWithSurroundingContent() {
+        let markdown = """
+        # Header
+
+        Some text before.
+
+        | A | B |
+        |---|---|
+        | 1 | 2 |
+
+        Some text after.
+        """
+        let result = converter.convert(markdown)
+        #expect(result.contains("font-size: 24px"))  // H1 preserved
+        #expect(result.contains("Some text before"))
+        #expect(result.contains("<table"))
+        #expect(result.contains("Some text after"))
+    }
+
+    @Test("Table separator detection")
+    func testTableSeparatorVariants() {
+        // Standard separator
+        let markdown1 = """
+        | A | B |
+        |---|---|
+        | 1 | 2 |
+        """
+        let result1 = converter.convert(markdown1)
+        #expect(result1.contains("<table"))
+
+        // Separator with colons (alignment markers)
+        let markdown2 = """
+        | A | B |
+        |:--|--:|
+        | 1 | 2 |
+        """
+        let result2 = converter.convert(markdown2)
+        #expect(result2.contains("<table"))
+    }
+
+    @Test("Non-table pipe characters preserved")
+    func testNonTablePipes() {
+        // Single line with pipes but no separator = not a table
+        let markdown = "This | is | not | a table"
+        let result = converter.convert(markdown)
+        #expect(!result.contains("<table"))
+        #expect(result.contains("This"))
+    }
+
+    @Test("Table has proper styling")
+    func testTableStyling() {
+        let markdown = """
+        | A | B |
+        |---|---|
+        | 1 | 2 |
+        """
+        let result = converter.convert(markdown)
+        #expect(result.contains("border-collapse: collapse"))
+        #expect(result.contains("border-style: solid"))
+        #expect(result.contains("border-color: #ccc"))
+        #expect(result.contains("padding:"))
+    }
 }
 
 // MARK: - Integration Tests
@@ -302,6 +405,46 @@ struct IntegrationTests {
         #expect(html.contains("<b>bold</b>"))
         #expect(html.contains("<i>italic</i>"))
         #expect(html.contains("• List item 1"))
+
+        cleanup(noteId: result.id)
+    }
+
+    @Test("Create note with markdown table")
+    func testCreateNoteWithTable() throws {
+        try ensureTestFolder()
+
+        let title = uniqueTitle("Table Test")
+        let body = """
+        # Table Demo
+
+        Here is a table:
+
+        | Name | Age | City |
+        |------|-----|------|
+        | Alice | 30 | NYC |
+        | Bob | 25 | LA |
+
+        Text after the table.
+        """
+
+        let result = try appleScript.createNote(
+            title: title,
+            body: body,
+            folder: Self.testFolderName
+        )
+
+        #expect(result.id.hasPrefix("x-coredata://"))
+
+        // Verify via getNoteBody that table was created
+        let html = try appleScript.getNoteBody(id: result.id)
+
+        // Table should be converted to native Notes table
+        #expect(html.contains("<table"), "Should contain table tag")
+        #expect(html.contains("<tbody>"), "Should contain tbody")
+        #expect(html.contains("Alice"), "Table data should be present")
+        #expect(html.contains("NYC"), "Table data should be present")
+        #expect(html.contains("Bob"), "Table data should be present")
+        #expect(html.contains("Text after the table"), "Content after table preserved")
 
         cleanup(noteId: result.id)
     }

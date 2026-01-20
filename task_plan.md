@@ -40,6 +40,7 @@ Phase 6 (iCloud Sync Verification) - Optional/Manual
 - [x] Very long titles
 - [x] HTML-like content (XSS prevention)
 - [x] All markdown features
+- [x] Tables (markdown to native Notes format)
 - **Status:** complete
 
 ### Phase 5: Hashtags & Links
