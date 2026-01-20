@@ -22,7 +22,7 @@ public struct Note {
 }
 
 /// Full note content for read operations
-public struct NoteContent {
+public struct NoteContent: Codable {
     public let id: String
     public let title: String
     public let content: String
@@ -32,16 +32,48 @@ public struct NoteContent {
     public var attachments: [Attachment] = []
     public var hashtags: [String] = []
     public var noteLinks: [NoteLink] = []
+
+    enum CodingKeys: String, CodingKey {
+        case id, title, content, folder, createdAt, modifiedAt
+        case attachments, hashtags, noteLinks
+    }
+
+    public init(id: String, title: String, content: String, folder: String?, createdAt: Date?, modifiedAt: Date?) {
+        self.id = id
+        self.title = title
+        self.content = content
+        self.folder = folder
+        self.createdAt = createdAt
+        self.modifiedAt = modifiedAt
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        title = try container.decode(String.self, forKey: .title)
+        content = try container.decode(String.self, forKey: .content)
+        folder = try container.decodeIfPresent(String.self, forKey: .folder)
+        createdAt = try container.decodeIfPresent(Date.self, forKey: .createdAt)
+        modifiedAt = try container.decodeIfPresent(Date.self, forKey: .modifiedAt)
+        attachments = try container.decodeIfPresent([Attachment].self, forKey: .attachments) ?? []
+        hashtags = try container.decodeIfPresent([String].self, forKey: .hashtags) ?? []
+        noteLinks = try container.decodeIfPresent([NoteLink].self, forKey: .noteLinks) ?? []
+    }
 }
 
 /// A link to another note
-public struct NoteLink {
+public struct NoteLink: Codable {
     public let text: String      // Display text of the link
     public let targetId: String  // UUID of the target note
+
+    public init(text: String, targetId: String) {
+        self.text = text
+        self.targetId = targetId
+    }
 }
 
 /// Attachment metadata
-public struct Attachment {
+public struct Attachment: Codable {
     public let id: String           // x-coredata://...ICAttachment/p123
     public let identifier: String   // UUID
     public let name: String?        // filename (e.g., "IMG_0473.jpg")
@@ -49,6 +81,16 @@ public struct Attachment {
     public let fileSize: Int64      // bytes
     public let createdAt: Date?
     public let modifiedAt: Date?
+
+    public init(id: String, identifier: String, name: String?, typeUTI: String, fileSize: Int64, createdAt: Date?, modifiedAt: Date?) {
+        self.id = id
+        self.identifier = identifier
+        self.name = name
+        self.typeUTI = typeUTI
+        self.fileSize = fileSize
+        self.createdAt = createdAt
+        self.modifiedAt = modifiedAt
+    }
 }
 
 // MARK: - Errors

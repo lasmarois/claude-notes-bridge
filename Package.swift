@@ -13,9 +13,8 @@ let package = Package(
     ],
     dependencies: [
         .package(url: "https://github.com/apple/swift-protobuf.git", from: "1.25.0"),
+        .package(url: "https://github.com/apple/swift-argument-parser.git", from: "1.3.0"),
         .package(url: "https://github.com/apple/swift-testing.git", branch: "main")
-        // TODO: Re-enable when Core ML model generation is fixed
-        // .package(url: "https://github.com/ZachNagengast/similarity-search-kit.git", from: "0.0.1")
     ],
     targets: [
         // Core library with all the logic
@@ -38,7 +37,10 @@ let package = Package(
         // Executable that uses the library
         .executableTarget(
             name: "claude-notes-bridge",
-            dependencies: ["NotesLib"],
+            dependencies: [
+                "NotesLib",
+                .product(name: "ArgumentParser", package: "swift-argument-parser")
+            ],
             path: "Sources/claude-notes-bridge"
         ),
         // Benchmark tool

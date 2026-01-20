@@ -4,31 +4,31 @@
 Replace ad-hoc argument handling with a proper CLI using Swift Argument Parser. Add subcommands for common operations, helpful error messages, and scripting support.
 
 ## Current Phase
-Phase 1 (Swift Argument Parser Setup)
+Phase 1-3 COMPLETE
 
 ## Phases
 
 ### Phase 1: Swift Argument Parser Setup
-- [ ] Add swift-argument-parser dependency to Package.swift
-- [ ] Create root command structure
-- [ ] Migrate `--help` and `--version` to ArgumentParser
-- [ ] Remove old ad-hoc argument handling
-- **Status:** pending
+- [x] Add swift-argument-parser dependency to Package.swift
+- [x] Create root command structure
+- [x] Migrate `--help` and `--version` to ArgumentParser
+- [x] Remove old ad-hoc argument handling
+- **Status:** complete
 
 ### Phase 2: Subcommands
-- [ ] `serve` - Start MCP server (default behavior)
-- [ ] `search <query>` - Search notes from CLI
-- [ ] `list [--folder]` - List notes
-- [ ] `read <id>` - Read a note
-- [ ] `folders` - List folders
-- **Status:** pending
+- [x] `serve` - Start MCP server (default behavior)
+- [x] `search <query>` - Search notes from CLI (with --semantic, --fts, --fuzzy, --content)
+- [x] `list [--folder]` - List notes
+- [x] `read <id>` - Read a note (with --json)
+- [x] `folders` - List folders
+- **Status:** complete
 
 ### Phase 3: Error Handling & UX
-- [ ] Graceful Full Disk Access error with instructions
-- [ ] Colored terminal output (titles, errors, success)
-- [ ] Proper exit codes (0=success, 1=error, 2=permission)
-- [ ] Progress indicators for slow operations
-- **Status:** pending
+- [x] Graceful Full Disk Access error with instructions
+- [x] Colored terminal output (titles, errors, success)
+- [x] Proper exit codes (0=success, 1=error, 2=permission, 3=not found)
+- [ ] Progress indicators for slow operations (deferred)
+- **Status:** complete
 
 ### Phase 4: Export/Import Subcommands (Preview for M10)
 - [ ] `export <id> [--format md|json]` - Export single note
