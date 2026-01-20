@@ -138,13 +138,33 @@ The original goal-1 research incorrectly stated AppleScript couldn't update/dele
 - [ ] Batch export (folder or all notes)
 - [ ] Preserve folder structure
 
-### M11: Distribution `[exploratory]`
+### M11: Professional README `[committed]`
+- [ ] Project description and value proposition
+- [ ] Installation instructions (Homebrew, manual build)
+- [ ] Quick start guide with examples
+- [ ] Feature overview with screenshots/GIFs
+- [ ] Configuration and permissions setup
+- [ ] API/tool reference documentation
+- [ ] Contributing guidelines
+- [ ] License and attribution
+
+### M12: Release Pipeline `[committed]`
+- [ ] Protected default branch (main)
+- [ ] Required PR reviews before merge
+- [ ] CI status checks (build, test, lint)
+- [ ] Automated version tagging
+- [ ] GitHub Actions release workflow
+- [ ] Changelog generation
+- [ ] Signed binary artifacts
+- [ ] Branch protection rules documented
+
+### M13: Distribution `[exploratory]`
 - [ ] Code signing & notarization
 - [ ] Homebrew formula
 - [ ] GitHub releases with signed binaries
 - [ ] User documentation
 
-### M12: Backward Compatibility `[exploratory]`
+### M14: Backward Compatibility `[exploratory]`
 - [ ] Support macOS 12 (Monterey) — async/await floor
 - [ ] Support macOS 10.15-11 — feature flags for async/await
 - [ ] Graceful degradation: disable semantic search on older systems
@@ -192,3 +212,4 @@ The original goal-1 research incorrectly stated AppleScript couldn't update/dele
 | 2026-01-19 | Added M10 (Backward Compatibility) for supporting older macOS versions. Renumbered M8→M9 (Distribution). |
 | 2026-01-20 | **M6.6 complete:** Integration testing done via Goal-8 (CRUD, edge cases, tables) + Goal-10 (44 search tests). |
 | 2026-01-20 | **Roadmap expansion:** Added M8 (CLI Interface), M9 (Search UI), M10 (Import/Export). Renumbered Distribution→M11, Backward Compat→M12. |
+| 2026-01-19 | Added M11 (Professional README) and M12 (Release Pipeline). Renumbered Distribution→M13, Backward Compat→M14. |
