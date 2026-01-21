@@ -1,148 +1,105 @@
-# Goal-13: Import/Export (M10)
+# Goal-14: Import/Export UI (M10.5)
 
 ## Objective
-Add import/export capabilities for notes in Markdown and JSON formats.
+Integrate import/export capabilities into the Search UI with a queue-based workflow.
 
-## Design Decisions (from brainstorming)
+## Design Reference
+See: `docs/plans/2026-01-20-import-export-ui-design.md`
 
-### Use Cases
-All of: Backup, Migration, Automation, Sharing
-
-### Markdown Format
-- Standard CommonMark for maximum compatibility
-- Extensible design for future app-specific formats (Obsidian, Bear)
-- YAML frontmatter for metadata (round-trip compatible)
-
-### Conflict Handling
-- Interactive prompt by default (`--on-conflict ask`)
-- Options: skip, replace, duplicate, ask
-- Bulk decisions: all-skip, all-replace during prompts
-
-### Attachments
-- Hybrid directory structure (Option C)
-- Optional via `--no-attachments` flag
-- Structure:
-  ```
-  export/
-  ├── Folder Name/
-  │   └── Note Title.md
-  └── attachments/
-      └── Folder Name/
-          └── Note Title/
-              └── image.png
-  ```
-
-### JSON Export
-- Configurable: minimal by default
-- Flags: `--include-html`, `--full`
-
-### CLI Style
-- Subcommands: `export`, `import`
+## Key Features
+- Export queue ("shopping cart") - build selection over multiple searches
+- Import staging area with conflict detection
+- Collapsible right sidebar panel with Export/Import tabs
+- Progress bar with real-time feedback
+- Toolbar buttons with badge, keyboard shortcuts, menu bar items
 
 ---
 
 ## Phases
 
-### Phase 1: Export Infrastructure ✅
-- [x] Create `Sources/NotesLib/Export/` directory
-- [x] `NoteFormatter` protocol (pluggable formatters)
-- [x] `MarkdownFormatter` - StyledNoteContent → Markdown
-- [x] `JSONFormatter` - NoteContent → JSON
-- [x] `NotesExporter` - orchestrates export
+### Phase 1: Export Queue Infrastructure
+- [ ] Create `ExportViewModel.swift` with queue state management
+- [ ] Add `exportQueue` property and methods to manage queue
+- [ ] Integrate with existing `NotesExporter`
+- [ ] Add "add to queue" methods callable from SearchViewModel
 
-### Phase 2: Export CLI ✅
-- [x] Add `Export` subcommand to main.swift
-- [x] Single note export (stdout or file)
-- [x] Format selection: `--format md|json`
-- [x] JSON options: `--include-html`, `--full`
-- [x] Markdown options: `--no-frontmatter`
+### Phase 2: Import Staging Infrastructure
+- [ ] Create `ImportViewModel.swift` with staging state management
+- [ ] Add file/folder picker integration
+- [ ] Conflict detection on file add
+- [ ] Integrate with existing `NotesImporter`
 
-### Phase 3: Batch Export ✅
-- [x] `--folder <name>` - export all notes in folder
-- [x] `--all` - export all notes
-- [x] `-o <directory>` - output directory
-- [x] `--no-attachments` - skip attachment copying
-- [x] Preserve folder structure
+### Phase 3: Panel UI - Shell
+- [ ] Create `ImportExportPanel.swift` with tab switching
+- [ ] Add panel to ContentView (collapsible right sidebar)
+- [ ] Panel open/close animation
+- [ ] Tab state management (Export vs Import)
 
-### Phase 4: Import Infrastructure ✅
-- [x] Create `Sources/NotesLib/Import/` directory
-- [x] `FrontmatterParser` - extract YAML metadata
-- [x] `NotesImporter` - file → AppleScript create
-- [x] Conflict detection and resolution
+### Phase 4: Export Tab UI
+- [ ] Create `ExportTab.swift`
+- [ ] Queue list view (grouped by folder, collapsible)
+- [ ] Checkbox selection and remove buttons
+- [ ] Export options (format, frontmatter, attachments)
+- [ ] Location picker integration
+- [ ] Export button and progress display
 
-### Phase 5: Import CLI ✅
-- [x] Add `Import` subcommand
-- [x] Single file: `import note.md`
-- [x] `--folder <name>` - target folder
-- [x] `--on-conflict` - skip|replace|duplicate|ask
-- [x] `--dry-run` - preview without executing
+### Phase 5: Import Tab UI
+- [ ] Create `ImportTab.swift`
+- [ ] Staging list view with conflict indicators
+- [ ] File/folder picker buttons
+- [ ] Drag and drop support
+- [ ] Import options (default folder, conflict handling)
+- [ ] Import button and progress display
 
-### Phase 6: Batch Import ✅
-- [x] `--dir <path>` - import directory
-- [x] Create folders matching structure
-- [x] Interactive conflict resolution
+### Phase 6: Search Integration
+- [ ] Add "+" button to search result rows
+- [ ] Multi-select support (Cmd+click, Shift+click)
+- [ ] "Add Selected" and "Add All Results" buttons
+- [ ] Update SearchViewModel with queue integration
 
-### Phase 7: Tests ✅
-- [x] MarkdownFormatter unit tests
-- [x] FrontmatterParser unit tests
-- [x] Export → Import round-trip test
-- [x] ExportOptions and ImportOptions tests
+### Phase 7: Toolbar & Menu
+- [ ] Add Export/Import buttons to toolbar
+- [ ] Badge showing queue count on Export button
+- [ ] File menu items (Export..., Import..., Add to Export, Add All)
+- [ ] Keyboard shortcuts (⌘E, ⌘I, ⌘⇧E, ⌘⌥E)
 
----
+### Phase 8: Progress & Feedback
+- [ ] Progress bar component with percentage and current item
+- [ ] Cancel button during operations
+- [ ] Success/failure completion views
+- [ ] "Open in Finder" and "Clear Queue" actions
+- [ ] Error summary with retry option
 
-## CLI Commands
+### Phase 9: Polish & Edge Cases
+- [ ] Duplicate detection when adding to queue
+- [ ] Empty queue state handling
+- [ ] Panel close confirmation during operation
+- [ ] Long title truncation
+- [ ] Keyboard navigation in queue/staging lists
 
-### Export
-```bash
-# Single note
-notes-bridge export <note-id> --format md              # stdout
-notes-bridge export <note-id> --format md -o note.md   # file
-notes-bridge export <note-id> --format json --full     # full JSON
-
-# Batch
-notes-bridge export --folder "Work" -o ./backup/
-notes-bridge export --all -o ./backup/ --no-attachments
-```
-
-### Import
-```bash
-# Single file
-notes-bridge import note.md --folder "Work"
-
-# Batch
-notes-bridge import --dir ./notes/ --folder "Imported"
-notes-bridge import --dir ./notes/ --on-conflict skip
-```
+### Phase 10: Testing
+- [ ] ExportViewModel unit tests
+- [ ] ImportViewModel unit tests
+- [ ] Integration tests for full workflow
+- [ ] Manual UI testing
 
 ---
 
 ## Architecture
 
 ```
-NotesLib/
-├── Export/
-│   ├── NotesExporter.swift       # Core export logic
-│   ├── NoteFormatter.swift       # Protocol
-│   ├── MarkdownFormatter.swift   # StyledNoteContent → Markdown
-│   └── JSONFormatter.swift       # NoteContent → JSON
-└── Import/
-    ├── NotesImporter.swift       # Core import logic
-    └── FrontmatterParser.swift   # YAML extraction
+Sources/NotesSearch/
+├── NotesSearchApp.swift (existing)
+├── ContentView.swift (modify - add panel)
+├── SearchViewModel.swift (modify - add queue methods)
+├── ImportExportPanel.swift (NEW)
+├── ExportTab.swift (NEW)
+├── ImportTab.swift (NEW)
+├── ExportViewModel.swift (NEW)
+└── ImportViewModel.swift (NEW)
 ```
 
-### Key Design: NoteFormatter Protocol
-```swift
-protocol NoteFormatter {
-    func format(_ note: NoteContent, options: ExportOptions) throws -> String
-}
-```
-Allows future Obsidian/Bear formatters without changing core logic.
-
----
-
-## Codebase Notes
-
-- **Existing MarkdownConverter**: Converts Markdown → HTML (for import)
-- **CLI structure**: All commands in `main.swift`, uses ArgumentParser
-- **StyledNoteContent**: Has structured text/attributeRuns/tables (good for export)
-- **readNote()**: Returns `htmlContent` and plain `content`
+## Dependencies
+- NotesExporter (from Goal-13) ✅
+- NotesImporter (from Goal-13) ✅
+- ExportOptions, ImportOptions (from Goal-13) ✅
