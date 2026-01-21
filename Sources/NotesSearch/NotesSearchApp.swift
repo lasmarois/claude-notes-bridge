@@ -6,14 +6,18 @@ import NotesLib
 struct NotesSearchApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
     @StateObject private var viewModel = SearchViewModel()
+    @StateObject private var exportViewModel = ExportViewModel()
+    @StateObject private var importViewModel = ImportViewModel()
 
     var body: some Scene {
         WindowGroup {
             ContentView()
                 .environmentObject(viewModel)
+                .environmentObject(exportViewModel)
+                .environmentObject(importViewModel)
         }
         .windowStyle(.automatic)
-        .defaultSize(width: 900, height: 600)
+        .defaultSize(width: 1000, height: 600)
         .commands {
             CommandGroup(replacing: .newItem) { }
 
@@ -23,6 +27,67 @@ struct NotesSearchApp: App {
                 }
                 .keyboardShortcut("f", modifiers: .command)
             }
+
+            // Import/Export commands
+            ImportExportCommands()
+
+            // View commands
+            ViewCommands()
+        }
+    }
+}
+
+// MARK: - Import/Export Menu Commands
+
+struct ImportExportCommands: Commands {
+    @FocusedValue(\.showExportPanel) var showExportPanel
+    @FocusedValue(\.showImportPanel) var showImportPanel
+    @FocusedValue(\.addSelectedToExport) var addSelectedToExport
+    @FocusedValue(\.addAllToExport) var addAllToExport
+    @FocusedValue(\.exportQueueCount) var exportQueueCount
+    @FocusedValue(\.hasSelectedResult) var hasSelectedResult
+    @FocusedValue(\.hasResults) var hasResults
+
+    var body: some Commands {
+        CommandGroup(after: .importExport) {
+            Button("Export...") {
+                showExportPanel?()
+            }
+            .keyboardShortcut("e", modifiers: .command)
+
+            Button("Import...") {
+                showImportPanel?()
+            }
+            .keyboardShortcut("i", modifiers: .command)
+
+            Divider()
+
+            Button("Add to Export Queue") {
+                addSelectedToExport?()
+            }
+            .keyboardShortcut("e", modifiers: [.command, .shift])
+            .disabled(hasSelectedResult != true)
+
+            Button("Add All Results to Export") {
+                addAllToExport?()
+            }
+            .keyboardShortcut("e", modifiers: [.command, .option])
+            .disabled(hasResults != true)
+        }
+    }
+}
+
+// MARK: - View Menu Commands
+
+struct ViewCommands: Commands {
+    @FocusedValue(\.refreshNotes) var refreshNotes
+
+    var body: some Commands {
+        CommandGroup(after: .toolbar) {
+            Button("Refresh Notes") {
+                refreshNotes?()
+            }
+            .keyboardShortcut("r", modifiers: .command)
         }
     }
 }

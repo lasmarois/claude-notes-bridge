@@ -92,9 +92,20 @@ class SearchViewModel: ObservableObject {
 
     // Search options
     @Published var fuzzyEnabled: Bool = false
-    @Published var selectedFolder: String? = nil
-    @Published var availableFolders: [String] = []
+    @Published var selectedFolders: Set<String> = []  // Empty = all folders
+    @Published var selectedAccounts: Set<String> = []  // Empty = all accounts
+    @Published var availableFolders: [(name: String, account: String?)] = []
+    @Published var availableAccounts: [String] = []
     @Published var minSemanticScore: Float = 0.3  // Filter out weak semantic matches
+
+    // All notes (shown when not searching)
+    @Published var allNotes: [SearchResult] = []
+    @Published var showDeletedNotes: Bool = false
+
+    // Source filters (which result types to show)
+    @Published var showTitleResults: Bool = true
+    @Published var showContentResults: Bool = true
+    @Published var showAIResults: Bool = true
 
     // Status - tracks which searches are running
     @Published var searchingBasic: Bool = false
@@ -115,6 +126,8 @@ class SearchViewModel: ObservableObject {
         semanticSearch = SemanticSearch(notesDB: database)
         checkPermissions()
         loadFolders()
+        loadAccounts()
+        loadAllNotes()
     }
 
     func checkPermissions() {
@@ -128,15 +141,149 @@ class SearchViewModel: ObservableObject {
 
     func loadFolders() {
         do {
-            let folders = try database.listFolders()
-            availableFolders = folders.map { $0.name }.sorted()
+            // Get folders with account info, ordered like Notes app
+            let folders = try database.listFoldersWithAccounts()
+            availableFolders = folders.map { (name: $0.name, account: $0.accountName) }
         } catch {
             availableFolders = []
         }
     }
 
+    func loadAccounts() {
+        do {
+            let accounts = try database.listAccounts()
+            availableAccounts = accounts.map { $0.name }
+        } catch {
+            availableAccounts = []
+        }
+    }
+
+    func loadAllNotes() {
+        Task {
+            do {
+                let notes = try database.listNotes(limit: 10000, includeDeleted: showDeletedNotes)
+                allNotes = notes.map { note in
+                    SearchResult(
+                        id: note.id,
+                        title: note.title,
+                        folder: note.folder,
+                        snippet: nil,
+                        score: nil,
+                        modifiedAt: note.modifiedAt,
+                        source: .basic
+                    )
+                }
+            } catch {
+                allNotes = []
+            }
+        }
+    }
+
+    func toggleShowDeletedNotes() {
+        showDeletedNotes.toggle()
+        loadAllNotes()
+    }
+
+    @Published var isRefreshing = false
+
+    func refresh() {
+        isRefreshing = true
+        loadFolders()
+        loadAccounts()
+        loadAllNotes()
+        // Brief delay to show animation
+        Task {
+            try? await Task.sleep(for: .milliseconds(500))
+            isRefreshing = false
+        }
+    }
+
     var isAnySearching: Bool {
         searchingBasic || searchingFTS || searchingSemantic
+    }
+
+    /// Results filtered by source type preferences
+    var filteredResults: [SearchResult] {
+        results.filter { result in
+            // Check if any of the result's sources are enabled
+            for source in result.sources {
+                switch source {
+                case .basic:
+                    if showTitleResults { return true }
+                case .fts:
+                    if showContentResults { return true }
+                case .semantic:
+                    if showAIResults { return true }
+                case .multiple:
+                    // Multiple means it matched multiple sources, show if any are enabled
+                    return true
+                }
+            }
+            return false
+        }
+    }
+
+    /// Check if any source filter is active (not all enabled)
+    var hasActiveSourceFilter: Bool {
+        !showTitleResults || !showContentResults || !showAIResults
+    }
+
+    /// Check if any folder filter is active
+    var hasActiveFolderFilter: Bool {
+        !selectedFolders.isEmpty
+    }
+
+    /// Check if any account filter is active
+    var hasActiveAccountFilter: Bool {
+        !selectedAccounts.isEmpty
+    }
+
+    /// Toggle a folder in the selection
+    func toggleFolder(_ folder: String) {
+        if selectedFolders.contains(folder) {
+            selectedFolders.remove(folder)
+        } else {
+            selectedFolders.insert(folder)
+        }
+        // Re-run search with new filter
+        if !searchText.isEmpty {
+            search()
+        }
+    }
+
+    /// Toggle an account in the selection
+    func toggleAccount(_ account: String) {
+        if selectedAccounts.contains(account) {
+            selectedAccounts.remove(account)
+        } else {
+            selectedAccounts.insert(account)
+        }
+        // Re-run search with new filter
+        if !searchText.isEmpty {
+            search()
+        }
+    }
+
+    /// Clear all folder filters
+    func clearFolderFilter() {
+        selectedFolders.removeAll()
+        if !searchText.isEmpty {
+            search()
+        }
+    }
+
+    /// Clear all account filters
+    func clearAccountFilter() {
+        selectedAccounts.removeAll()
+        if !searchText.isEmpty {
+            search()
+        }
+    }
+
+    /// Select only one folder
+    func selectOnlyFolder(_ folder: String) {
+        selectedFolders = [folder]
+        search()
     }
 
     func search() {
@@ -181,15 +328,22 @@ class SearchViewModel: ObservableObject {
         defer { searchingBasic = false }
 
         do {
-            let notes = try database.searchNotes(
-                query: query,
-                limit: 30,
-                searchContent: false,  // FTS handles content search more efficiently
-                fuzzy: fuzzyEnabled,
-                folder: selectedFolder
-            )
+            // Search in each selected folder, or all if none selected
+            let foldersToSearch: [String?] = selectedFolders.isEmpty ? [nil] : selectedFolders.map { $0 }
 
-            let newResults = notes.map { note in
+            var allNotes: [Note] = []
+            for folder in foldersToSearch {
+                let notes = try database.searchNotes(
+                    query: query,
+                    limit: 30,
+                    searchContent: false,  // FTS handles content search more efficiently
+                    fuzzy: fuzzyEnabled,
+                    folder: folder
+                )
+                allNotes.append(contentsOf: notes)
+            }
+
+            let newResults = allNotes.map { note in
                 SearchResult(
                     id: note.id,
                     title: note.title,
@@ -221,8 +375,11 @@ class SearchViewModel: ObservableObject {
 
             for (noteId, snippet) in ftsResults {
                 if let note = allNotes.first(where: { $0.id == noteId }) {
-                    if let folderFilter = selectedFolder, note.folder != folderFilter {
-                        continue
+                    // Filter by selected folders (if any)
+                    if !selectedFolders.isEmpty {
+                        guard let noteFolder = note.folder, selectedFolders.contains(noteFolder) else {
+                            continue
+                        }
                     }
                     newResults.append(SearchResult(
                         id: note.id,
@@ -262,7 +419,12 @@ class SearchViewModel: ObservableObject {
 
             let filtered = semanticResults.filter { result in
                 if result.score < minSemanticScore { return false }
-                if let folderFilter = selectedFolder, result.folder != folderFilter { return false }
+                // Filter by selected folders (if any)
+                if !selectedFolders.isEmpty {
+                    guard let folder = result.folder, selectedFolders.contains(folder) else {
+                        return false
+                    }
+                }
                 return true
             }
 

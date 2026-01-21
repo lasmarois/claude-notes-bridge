@@ -21,7 +21,11 @@ public class NotesDatabase {
     // MARK: - Public API
 
     /// List notes with optional folder filter
-    public func listNotes(folder: String? = nil, limit: Int = 100) throws -> [Note] {
+    /// - Parameters:
+    ///   - folder: Optional folder name to filter by
+    ///   - limit: Maximum number of notes to return
+    ///   - includeDeleted: If true, includes notes marked for deletion (Recently Deleted)
+    public func listNotes(folder: String? = nil, limit: Int = 100, includeDeleted: Bool = false) throws -> [Note] {
         try ensureOpen()
 
         var query = """
@@ -35,6 +39,12 @@ public class NotesDatabase {
             LEFT JOIN ZICCLOUDSYNCINGOBJECT f ON n.ZFOLDER = f.Z_PK
             WHERE n.ZTITLE1 IS NOT NULL
             """
+
+        // Filter out deleted notes unless explicitly requested
+        if !includeDeleted {
+            query += " AND (n.ZMARKEDFORDELETION IS NULL OR n.ZMARKEDFORDELETION = 0)"
+            query += " AND f.ZTITLE2 != 'Recently Deleted'"
+        }
 
         if let folder = folder {
             query += " AND f.ZTITLE2 = '\(folder.replacingOccurrences(of: "'", with: "''"))'"
@@ -1090,15 +1100,15 @@ public class NotesDatabase {
         return notes
     }
 
-    /// List available folders
-    public func listFolders() throws -> [(pk: Int64, name: String)] {
+    /// List available accounts
+    public func listAccounts() throws -> [(pk: Int64, name: String)] {
         try ensureOpen()
 
         let query = """
-            SELECT Z_PK, ZTITLE2
+            SELECT Z_PK, ZNAME
             FROM ZICCLOUDSYNCINGOBJECT
-            WHERE Z_ENT = 15 AND ZTITLE2 IS NOT NULL
-            ORDER BY ZTITLE2
+            WHERE Z_ENT = 14 AND ZNAME IS NOT NULL
+            ORDER BY Z_PK
             """
 
         var statement: OpaquePointer?
@@ -1107,14 +1117,74 @@ public class NotesDatabase {
         }
         defer { sqlite3_finalize(statement) }
 
-        var folders: [(pk: Int64, name: String)] = []
+        var accounts: [(pk: Int64, name: String)] = []
         while sqlite3_step(statement) == SQLITE_ROW {
             let pk = sqlite3_column_int64(statement, 0)
             let name = columnString(statement, 1) ?? ""
-            folders.append((pk: pk, name: name))
+            accounts.append((pk: pk, name: name))
+        }
+
+        return accounts
+    }
+
+    /// List available folders with account info, ordered to match Notes app
+    public func listFoldersWithAccounts() throws -> [(pk: Int64, name: String, accountPK: Int64?, accountName: String?)] {
+        try ensureOpen()
+
+        // Query folders with their parent account, excluding deleted/system folders
+        // ZMARKEDFORDELETION = 1 means folder is in trash
+        // Only show folders that have at least one non-deleted note
+        let query = """
+            SELECT DISTINCT f.Z_PK, f.ZTITLE2, a.Z_PK, a.ZNAME
+            FROM ZICCLOUDSYNCINGOBJECT f
+            LEFT JOIN ZICCLOUDSYNCINGOBJECT a ON f.ZACCOUNT4 = a.Z_PK
+            INNER JOIN ZICCLOUDSYNCINGOBJECT n ON n.ZFOLDER = f.Z_PK
+            WHERE f.Z_ENT = 15
+            AND f.ZTITLE2 IS NOT NULL
+            AND f.ZTITLE2 != 'Recently Deleted'
+            AND (f.ZMARKEDFORDELETION IS NULL OR f.ZMARKEDFORDELETION = 0)
+            AND n.ZTITLE1 IS NOT NULL
+            AND (n.ZMARKEDFORDELETION IS NULL OR n.ZMARKEDFORDELETION = 0)
+            ORDER BY a.Z_PK, f.Z_PK
+            """
+
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(db, query, -1, &statement, nil) == SQLITE_OK else {
+            throw NotesError.queryFailed(String(cString: sqlite3_errmsg(db)))
+        }
+        defer { sqlite3_finalize(statement) }
+
+        var folders: [(pk: Int64, name: String, accountPK: Int64?, accountName: String?)] = []
+        while sqlite3_step(statement) == SQLITE_ROW {
+            let pk = sqlite3_column_int64(statement, 0)
+            let name = columnString(statement, 1) ?? ""
+            let accountPK: Int64? = sqlite3_column_type(statement, 2) == SQLITE_NULL
+                ? nil
+                : sqlite3_column_int64(statement, 2)
+            let accountName = columnString(statement, 3)
+            folders.append((pk: pk, name: name, accountPK: accountPK, accountName: accountName))
+        }
+
+        // Sort to match Notes app: group by account, then "Notes" first within each
+        folders.sort { a, b in
+            // First by account (maintain database order)
+            if a.accountPK != b.accountPK {
+                return (a.accountPK ?? 0) < (b.accountPK ?? 0)
+            }
+            // Within same account: "Notes" first
+            if a.name == "Notes" { return true }
+            if b.name == "Notes" { return false }
+            // Otherwise by Z_PK (creation order)
+            return a.pk < b.pk
         }
 
         return folders
+    }
+
+    /// List available folders (simple version for backward compatibility)
+    public func listFolders() throws -> [(pk: Int64, name: String)] {
+        let foldersWithAccounts = try listFoldersWithAccounts()
+        return foldersWithAccounts.map { (pk: $0.pk, name: $0.name) }
     }
 
     // MARK: - Private Write Helpers
