@@ -157,11 +157,12 @@ public class NotesImporter {
             // Convert markdown to HTML
             let htmlBody = convertToNoteBody(parsed)
 
-            // Create the note
+            // Create the note (body is already HTML from convertToNoteBody)
             let noteResult = try appleScript.createNote(
                 title: title,
                 body: htmlBody,
-                folder: folder
+                folder: folder,
+                isHTML: true
             )
 
             result.imported.append(ImportedNote(

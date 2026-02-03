@@ -248,6 +248,13 @@ public class MarkdownConverter {
     private func processFormatting(_ text: String) -> String {
         var result = text
 
+        // Links: [text](url) - process before bold/italic to avoid conflicts
+        result = applyPattern(result, pattern: "\\[([^\\]]+)\\]\\(([^)]+)\\)", replacement: "<a href=\"$2\">$1</a>")
+
+        // Bold+Italic: ***text*** or ___text___ - must come before bold and italic
+        result = applyPattern(result, pattern: "\\*\\*\\*(.+?)\\*\\*\\*", replacement: "<b><i>$1</i></b>")
+        result = applyPattern(result, pattern: "___(.+?)___", replacement: "<b><i>$1</i></b>")
+
         // Bold: **text** or __text__
         result = applyPattern(result, pattern: "\\*\\*(.+?)\\*\\*", replacement: "<b>$1</b>")
         result = applyPattern(result, pattern: "__(.+?)__", replacement: "<b>$1</b>")
@@ -267,9 +274,14 @@ public class MarkdownConverter {
 
         for i in 0..<lines.count {
             var line = lines[i]
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
 
+            // Horizontal rule: --- or *** or ___ (standalone line)
+            if trimmed == "---" || trimmed == "***" || trimmed == "___" {
+                line = "<hr style=\"border: none; border-top: 1px solid #ccc; margin: 8px 0;\">"
+            }
             // Headers: # ## ###
-            if line.hasPrefix("### ") {
+            else if line.hasPrefix("### ") {
                 line = "<b>\(String(line.dropFirst(4)))</b>"
             } else if line.hasPrefix("## ") {
                 line = "<b><span style=\"font-size: 18px\">\(String(line.dropFirst(3)))</span></b>"
@@ -282,11 +294,27 @@ public class MarkdownConverter {
             } else if line.hasPrefix("&gt;") && line.count > 4 {
                 line = "<font color=\"#666666\">▎ \(String(line.dropFirst(4)))</font>"
             }
+            // Nested unordered lists (2+ spaces indent): "  - " or "  * "
+            else if line.hasPrefix("  - ") || line.hasPrefix("    - ") {
+                let indent = line.hasPrefix("    - ") ? "        " : "    "
+                let content = line.trimmingCharacters(in: .whitespaces).dropFirst(2)
+                line = "\(indent)◦ \(content)"
+            } else if line.hasPrefix("  * ") || line.hasPrefix("    * ") {
+                let indent = line.hasPrefix("    * ") ? "        " : "    "
+                let content = line.trimmingCharacters(in: .whitespaces).dropFirst(2)
+                line = "\(indent)◦ \(content)"
+            }
             // Unordered lists: - or *
             else if line.hasPrefix("- ") {
                 line = "• \(String(line.dropFirst(2)))"
             } else if line.hasPrefix("* ") {
                 line = "• \(String(line.dropFirst(2)))"
+            }
+            // Numbered lists: 1. 2. etc.
+            else if let match = line.range(of: "^\\d+\\. ", options: .regularExpression) {
+                let number = line[match].dropLast(2)  // Get just the number
+                let content = String(line[match.upperBound...])
+                line = "\(number). \(content)"
             }
 
             lines[i] = line

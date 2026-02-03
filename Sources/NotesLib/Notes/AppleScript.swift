@@ -15,19 +15,19 @@ class NotesAppleScript {
     /// Create a new note via AppleScript
     /// - Parameters:
     ///   - title: The note title
-    ///   - body: The note body (plain text, will be wrapped in HTML)
+    ///   - body: The note body (plain text or HTML depending on isHTML flag)
     ///   - folder: Optional folder name (defaults to "Notes")
     ///   - account: Optional account name (defaults to default account)
+    ///   - isHTML: If true, body is already HTML and won't be processed
     /// - Returns: NoteResult with the created note's ID
-    func createNote(title: String, body: String, folder: String? = nil, account: String? = nil) throws -> NoteResult {
-        let escapedTitle = escapeForAppleScript(title)
-        let escapedBody = escapeForAppleScript(body)
+    func createNote(title: String, body: String, folder: String? = nil, account: String? = nil, isHTML: Bool = false) throws -> NoteResult {
         let folderName = folder ?? "Notes"
         let escapedFolder = escapeForAppleScript(folderName)
 
         // Build HTML body with styled title - Notes derives title from first line
         let styledTitle = "<b><span style=\"font-size: 24px\">\(escapeHTMLOnly(title))</span></b>"
-        let htmlBody = "<div>\(styledTitle)</div><div><br></div><div>\(processBody(body))</div>"
+        let processedBody = isHTML ? body : processBody(body)
+        let htmlBody = "<div>\(styledTitle)</div><div><br></div><div>\(processedBody)</div>"
         let escapedHtmlBody = escapeForAppleScript(htmlBody)
 
         let script: String
