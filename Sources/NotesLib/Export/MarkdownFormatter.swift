@@ -115,12 +115,12 @@ public class MarkdownFormatter: NoteFormatter {
         var output = ""
         let lines = styled.text.components(separatedBy: "\n")
 
-        // Build style map: character offset -> style
-        var styleAtOffset: [(offset: Int, style: NoteStyleType, length: Int)] = []
-        var currentOffset = 0
+        // Build style map: character offset -> style (CRDT uses character counts)
+        var styleAtCharOffset: [(offset: Int, style: NoteStyleType, length: Int)] = []
+        var currentCharOffset = 0
         for run in styled.attributeRuns {
-            styleAtOffset.append((currentOffset, run.styleType, run.length))
-            currentOffset += run.length
+            styleAtCharOffset.append((currentCharOffset, run.styleType, run.length))
+            currentCharOffset += run.length
         }
 
         // Find table positions (U+FFFC placeholders)
@@ -144,21 +144,20 @@ public class MarkdownFormatter: NoteFormatter {
         for (index, line) in lines.enumerated() {
             let lineCharCount = line.count
 
-            // Find style for this line
+            // Find style for this line (using character position)
             var lineStyle: NoteStyleType = .body
-            for (offset, style, _) in styleAtOffset.reversed() {
+            for (offset, style, _) in styleAtCharOffset.reversed() {
                 if offset <= charPosition {
                     lineStyle = style
                     break
                 }
             }
 
-            // First line is title
-            if index == 0 {
+            // First line defaults to title if no explicit style
+            if index == 0 && lineStyle == .body {
                 lineStyle = .title
-            } else if lineStyle == .title {
-                lineStyle = .heading
             }
+            // Other lines keep their explicit style (title stays title, heading stays heading)
 
             // Check for table placeholder
             if line.contains("\u{FFFC}") && tableIndex < sortedTables.count {
@@ -198,6 +197,8 @@ public class MarkdownFormatter: NoteFormatter {
                     output += "## \(trimmedLine)\n\n"
                 case .subheading:
                     output += "### \(trimmedLine)\n\n"
+                case .subheading2:
+                    output += "#### \(trimmedLine)\n\n"
                 case .bulletList:
                     output += "- \(trimmedLine)\n"
                 case .numberedList:

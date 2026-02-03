@@ -2,24 +2,29 @@ import Foundation
 import Compression
 
 /// Style types from Apple Notes protobuf
+///
+/// Note: "Title" (⇧⌘T) only works for the first line of a note and is NOT saved
+/// to the protobuf. It's inferred by our code for rendering purposes.
+/// "Heading" (⇧⌘H) is style_type=1 and IS properly saved.
 public enum NoteStyleType: Int, Codable {
     case body = 0
-    case title = 1
-    case heading = 2
-    case subheading = 3
+    case heading = 1           // Section header (⇧⌘H) - saved to protobuf as style_type=1
+    case subheading = 2        // Smaller header - saved as style_type=2
+    case subheading2 = 3       // Third level - saved as style_type=3
     case monospaced = 4
     case bulletList = 100      // Dash list (- item)
     case numberedList = 101    // Numbered list (1. item)
     case checkbox = 102        // Unchecked checkbox
     case checkboxChecked = 103 // Checked checkbox
+    case title = -2            // First line title - NOT from protobuf, inferred for rendering
     case unknown = -1          // Fallback for unrecognized styles
 
     public init(rawValue: Int) {
         switch rawValue {
         case 0: self = .body
-        case 1: self = .title
-        case 2: self = .heading
-        case 3: self = .subheading
+        case 1: self = .heading
+        case 2: self = .subheading
+        case 3: self = .subheading2
         case 4: self = .monospaced
         case 100: self = .bulletList
         case 101: self = .numberedList
@@ -31,9 +36,10 @@ public enum NoteStyleType: Int, Codable {
 
     public var htmlTag: String {
         switch self {
-        case .title: return "h1"
-        case .heading: return "h2"
-        case .subheading: return "h3"
+        case .title: return "h1"       // First line (inferred)
+        case .heading: return "h2"     // ⇧⌘H
+        case .subheading: return "h3"  // style_type=2
+        case .subheading2: return "h4" // style_type=3
         case .monospaced: return "pre"
         case .bulletList: return "li"
         case .numberedList: return "li"
@@ -181,28 +187,28 @@ public struct StyledNoteContent {
         """
 
         // Build a map of character offset -> style for the start of each run
-        // Note: attribute run lengths are CHARACTER counts, not byte counts
-        var styleAtOffset: [(offset: Int, style: NoteStyleType)] = []
-        var currentOffset = 0
+        // Note: CRDT attribute run lengths are in CHARACTERS, not bytes
+        var styleAtCharOffset: [(offset: Int, style: NoteStyleType)] = []
+        var currentCharOffset = 0
         for run in attributeRuns {
-            styleAtOffset.append((currentOffset, run.styleType))
-            currentOffset += run.length
+            styleAtCharOffset.append((currentCharOffset, run.styleType))
+            currentCharOffset += run.length
         }
 
-        // Find all U+FFFC placeholder positions and match with tables by order
-        var fffcPositions: [Int] = []
-        for (i, char) in text.enumerated() {
+        // Find all U+FFFC placeholder positions (in characters) and match with tables by order
+        var fffcCharPositions: [Int] = []
+        for (charPos, char) in text.enumerated() {
             if char == "\u{FFFC}" {
-                fffcPositions.append(i)
+                fffcCharPositions.append(charPos)
             }
         }
 
         // Sort tables by position and match to placeholders in order
         let sortedTables = tables.sorted { $0.position < $1.position }
-        var tableAtPosition: [Int: NoteTable] = [:]
-        for (index, fffcPos) in fffcPositions.enumerated() {
+        var tableAtCharPosition: [Int: NoteTable] = [:]
+        for (index, fffcPos) in fffcCharPositions.enumerated() {
             if index < sortedTables.count {
-                tableAtPosition[fffcPos] = sortedTables[index]
+                tableAtCharPosition[fffcPos] = sortedTables[index]
             }
         }
 
@@ -222,7 +228,7 @@ public struct StyledNoteContent {
             return tableHtml
         }
 
-        // Process text line by line, tracking CHARACTER position (not bytes)
+        // Process text line by line, tracking CHARACTER position
         let lines = text.components(separatedBy: "\n")
         var charPosition = 0
         var codeBlockLines: [String] = []  // Buffer for consecutive code lines
@@ -237,27 +243,23 @@ public struct StyledNoteContent {
         }
 
         for (index, line) in lines.enumerated() {
-            // Count characters in the line (not bytes!)
+            // Count characters in the line
             let lineCharCount = line.count
 
             // Find the style for this line's starting character position
             var lineStyle: NoteStyleType = .body
-            for (offset, style) in styleAtOffset.reversed() {
+            for (offset, style) in styleAtCharOffset.reversed() {
                 if offset <= charPosition {
                     lineStyle = style
                     break
                 }
             }
 
-            // First line is always title; style 1 on first line = title, on others = heading
-            if index == 0 {
-                if lineStyle == .body || lineStyle == .title {
-                    lineStyle = .title
-                }
-            } else if lineStyle == .title {
-                // Style 1 after first line is actually a heading
-                lineStyle = .heading
+            // First line defaults to title if no explicit style
+            if index == 0 && lineStyle == .body {
+                lineStyle = .title
             }
+            // Other lines keep their explicit style (title stays title, heading stays heading)
 
             // Check for table placeholder (U+FFFC) in this line
             // If found, render the table inline and remove the placeholder
@@ -265,8 +267,8 @@ public struct StyledNoteContent {
             var lineCharIndex = 0
             for char in line {
                 if char == "\u{FFFC}" {
-                    let absolutePos = charPosition + lineCharIndex
-                    if let table = tableAtPosition[absolutePos] {
+                    let absoluteCharPos = charPosition + lineCharIndex
+                    if let table = tableAtCharPosition[absoluteCharPos] {
                         // Flush any pending code block before table
                         flushCodeBlock()
                         html += renderTable(table)
@@ -303,6 +305,8 @@ public struct StyledNoteContent {
                     html += "<h2>\(escapedText)</h2>\n"
                 case .subheading:
                     html += "<h3>\(escapedText)</h3>\n"
+                case .subheading2:
+                    html += "<h4>\(escapedText)</h4>\n"
                 case .monospaced:
                     // Handled above
                     break
@@ -359,6 +363,39 @@ public class NoteDecoder {
 
         // Step 2: Parse protobuf to extract text and styles
         return try extractStyledContent(from: decompressed)
+    }
+
+    /// Debug: dump attribute runs for a note
+    public func debugDumpStyles(_ data: Data) -> String {
+        guard let content = try? decodeStyled(data) else {
+            return "Failed to decode"
+        }
+
+        var output = "Text length: \(content.text.count) chars, \(content.text.utf8.count) bytes\n"
+        output += "Attribute runs: \(content.attributeRuns.count)\n\n"
+
+        var byteOffset = 0
+        let lines = content.text.components(separatedBy: "\n")
+
+        for (i, run) in content.attributeRuns.enumerated() {
+            output += "Run \(i): length=\(run.length), style=\(run.styleType) (raw: \(run.styleType.rawValue))\n"
+            output += "  Byte range: \(byteOffset)..<\(byteOffset + run.length)\n"
+
+            // Show what text this covers
+            let textData = content.text.data(using: .utf8)!
+            if byteOffset < textData.count {
+                let endByte = min(byteOffset + run.length, textData.count)
+                let rangeData = textData.subdata(in: byteOffset..<endByte)
+                if let text = String(data: rangeData, encoding: .utf8) {
+                    let preview = text.prefix(50).replacingOccurrences(of: "\n", with: "\\n")
+                    output += "  Text: \"\(preview)\(text.count > 50 ? "..." : "")\"\n"
+                }
+            }
+            byteOffset += run.length
+            output += "\n"
+        }
+
+        return output
     }
 
     // MARK: - Gzip Decompression
@@ -556,7 +593,7 @@ public class NoteDecoder {
 
         // If no attribute runs found, create a default body run
         if attributeRuns.isEmpty {
-            attributeRuns = [AttributeRun(length: text.utf8.count, styleType: .body)]
+            attributeRuns = [AttributeRun(length: text.count, styleType: .body)]
         }
 
         return StyledNoteContent(text: text, attributeRuns: attributeRuns, tables: [], tableReferences: [])

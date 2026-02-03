@@ -123,23 +123,27 @@ public class NoteEncoder {
                 styleType = .monospaced
                 // Keep line as-is for code
             }
-            // First line is always title
+            // First line is always title - Notes.app applies title styling automatically
+            // We use body (0) since the first line is treated specially by Notes.app
             else if index == 0 {
-                styleType = .title
+                styleType = .body  // Notes.app renders first line as title regardless of style_type
                 // Strip # prefix if present
                 if line.hasPrefix("# ") {
                     cleanLine = String(line.dropFirst(2))
                 }
             }
-            // Markdown headers
-            else if line.hasPrefix("### ") {
-                styleType = .subheading
+            // Markdown headers - map to Apple Notes heading styles
+            else if line.hasPrefix("#### ") {
+                styleType = .subheading2  // style_type=3
+                cleanLine = String(line.dropFirst(5))
+            } else if line.hasPrefix("### ") {
+                styleType = .subheading    // style_type=2
                 cleanLine = String(line.dropFirst(4))
             } else if line.hasPrefix("## ") {
-                styleType = .heading
+                styleType = .heading       // style_type=1 (⇧⌘H)
                 cleanLine = String(line.dropFirst(3))
             } else if line.hasPrefix("# ") {
-                styleType = .title
+                styleType = .heading       // style_type=1 (non-first-line # becomes heading)
                 cleanLine = String(line.dropFirst(2))
             }
             // Checkbox items
@@ -182,15 +186,16 @@ public class NoteEncoder {
         return (cleanText, runs)
     }
 
-    /// Style types for Notes.app
+    /// Style types for Notes.app protobuf encoding
+    /// Note: These match the public NoteStyleType in Decoder.swift
     private enum NoteStyleType: Int {
         case body = 0
-        case title = 1
-        case heading = 2
-        case subheading = 3
+        case heading = 1       // Section header (⇧⌘H) - style_type=1
+        case subheading = 2    // style_type=2
+        case subheading2 = 3   // style_type=3
         case monospaced = 4
-        case checkbox = 100
-        case checkboxChecked = 101
+        case checkbox = 102    // Fixed: was 100, should be 102
+        case checkboxChecked = 103  // Fixed: was 101, should be 103
     }
 
     /// Build a single AttributeRun
