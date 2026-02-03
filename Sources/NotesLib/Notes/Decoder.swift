@@ -7,7 +7,7 @@ import Compression
 /// to the protobuf. It's inferred by our code for rendering purposes.
 /// "Heading" (⇧⌘H) is style_type=1 and IS properly saved.
 public enum NoteStyleType: Int, Codable {
-    case body = 0
+    case title = 0             // Title - protobuf style_type=0 (when EXPLICITLY present)
     case heading = 1           // Section header (⇧⌘H) - saved to protobuf as style_type=1
     case subheading = 2        // Smaller header - saved as style_type=2
     case subheading2 = 3       // Third level - saved as style_type=3
@@ -16,12 +16,12 @@ public enum NoteStyleType: Int, Codable {
     case numberedList = 101    // Numbered list (1. item)
     case checkbox = 102        // Unchecked checkbox
     case checkboxChecked = 103 // Checked checkbox
-    case title = -2            // First line title - NOT from protobuf, inferred for rendering
+    case body = -2             // Body - when style_type field is ABSENT from protobuf
     case unknown = -1          // Fallback for unrecognized styles
 
     public init(rawValue: Int) {
         switch rawValue {
-        case 0: self = .body
+        case 0: self = .title   // style_type=0 explicitly means Title
         case 1: self = .heading
         case 2: self = .subheading
         case 3: self = .subheading2

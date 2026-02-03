@@ -123,10 +123,9 @@ public class NoteEncoder {
                 styleType = .monospaced
                 // Keep line as-is for code
             }
-            // First line is always title - Notes.app applies title styling automatically
-            // We use body (0) since the first line is treated specially by Notes.app
+            // First line gets Title style (style_type=0 explicitly written)
             else if index == 0 {
-                styleType = .body  // Notes.app renders first line as title regardless of style_type
+                styleType = .title  // style_type=0 = Title in protobuf
                 // Strip # prefix if present
                 if line.hasPrefix("# ") {
                     cleanLine = String(line.dropFirst(2))
@@ -169,9 +168,12 @@ public class NoteEncoder {
             let totalLength = isLastLine ? lineLength : lineLength + 1
 
             if totalLength > 0 || cleanLine.isEmpty {
+                // For body style, omit the paragraph_style field entirely (style_type absent = body)
+                // For all other styles, write the style_type explicitly
+                let paragraphStyle: Data? = styleType == .body ? nil : buildParagraphStyle(styleType: styleType.rawValue)
                 runs.append(buildAttributeRun(
                     length: max(totalLength, isLastLine ? 0 : 1),
-                    paragraphStyle: buildParagraphStyle(styleType: styleType.rawValue)
+                    paragraphStyle: paragraphStyle
                 ))
             }
         }
@@ -188,14 +190,17 @@ public class NoteEncoder {
 
     /// Style types for Notes.app protobuf encoding
     /// Note: These match the public NoteStyleType in Decoder.swift
+    /// IMPORTANT: In protobuf, style_type=0 means Title, NOT Body
+    ///            Body is represented by OMITTING the style_type field entirely
     private enum NoteStyleType: Int {
-        case body = 0
+        case title = 0         // Title - style_type=0 explicitly present
         case heading = 1       // Section header (⇧⌘H) - style_type=1
         case subheading = 2    // style_type=2
         case subheading2 = 3   // style_type=3
         case monospaced = 4
         case checkbox = 102    // Fixed: was 100, should be 102
         case checkboxChecked = 103  // Fixed: was 101, should be 103
+        case body = -2         // Body - style_type field is OMITTED (not written)
     }
 
     /// Build a single AttributeRun

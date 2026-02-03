@@ -1,240 +1,233 @@
-# Progress Log - Goal-14 (M10.5: Import/Export UI)
+# Progress Log - Goal-15 (CRDT Paragraph Style Investigation)
 
-## Session 1: Design & Planning
+## Session 1: Initial Investigation
+
+### Context
+- User observed Title-styled lines appearing as Body in preview
+- Screenshot confirmed Format menu shows "Title" checked
+- Database analysis shows Field 1 (style_type) missing in new format
 
 ### Completed
-- [x] Brainstorming session for UI approach
-- [x] Decided on sidebar panel with queue-based workflow
-- [x] Designed Export tab with queue and options
-- [x] Designed Import tab with staging and conflict handling
-- [x] Designed progress/feedback UX
-- [x] Designed toolbar and menu integration
-- [x] Created design document: `docs/plans/2026-01-20-import-export-ui-design.md`
-- [x] Archived Goal-13, created Goal-14
+- [x] Identified the symptom: Title/Heading styled text renders as Body
+- [x] Dumped protobuf structure for multiple notes
+- [x] Discovered Field 1 (style_type) is missing in Sequoia-format notes
+- [x] Found Field 3=1 and Field 9=UUID present instead
+- [x] Archived Goal-14, created Goal-15
 
-### Key Design Decisions
-1. **Panel style**: Collapsible right sidebar (non-modal)
-2. **Export workflow**: Queue-based ("shopping cart")
-3. **Queue persistence**: Memory only (clears on quit)
-4. **Adding to queue**: Individual + multi-select + Add All
-5. **Import workflow**: Staging area mirrors export UX
-6. **Access**: Toolbar buttons + menu bar + keyboard shortcuts
+### Key Findings So Far
+1. Old format (pre-Sequoia): `ParagraphStyle { style_type=0, field3=1, field9=UUID }`
+2. New format (Sequoia): `ParagraphStyle { field3=1, field9=UUID }` - NO style_type!
+3. Field 3 entries in document contain CRDT operations
+4. User's hypothesis: Style info is in CRDT ops, not attribute runs
 
 ### Next Steps
-- Phase 2: Create ImportViewModel with staging infrastructure
+- Deep dive into CRDT Field 3 structure
+- Map all CRDT operation fields
+- Find where paragraph styles are encoded
+
+## Session 1: Deep CRDT Analysis
+
+### Completed Analysis
+- [x] Created comprehensive protobuf analysis script
+- [x] Analyzed CRDT operations (Field 3) - NO style info, only position/length/tombstone
+- [x] Analyzed attribute runs (Field 5) - style info IS here
+- [x] Compared old vs new format notes
+- [x] Analyzed Field 9 UUIDs - they're replica IDs, not style references
+
+### Critical Finding
+
+**The database shows "Preparation" as BODY, not TITLE:**
+```
+[11] pos=38 len=12 para={style=body} "Preparation\n"
+```
+
+This means either:
+1. Notes.app hasn't saved the Title formatting to the database
+2. The Format menu is showing stale/cached UI state
+3. iCloud sync hasn't completed
+
+### UUID Analysis Results
+- Field 9 UUIDs are **replica/author identifiers**, not style references
+- Each editing session/author gets a unique UUID
+- Same style can have multiple different UUIDs
+- UUIDs are for CRDT conflict resolution
+
+### Database State
+- ZMERGEABLEDATA, ZMERGEABLEDATA1, ZMERGEABLEDATA2 are all NULL for this note
+- Only ZDATA (protobuf blob) contains note content
+- ZSERVERRECORDDATA has CloudKit metadata, not style info
+
+### User Verification Tests
+
+1. **Small edit test**: User made edit - text saved but style still body
+2. **Explicit Title toggle**: User changed Preparation Body→Title→quit - still body in DB
+3. **Sophos note analysis**: Confirmed style_type=1 is HEADING, not Title
+
+### Key Discovery: Title vs Heading
+
+User confirmed:
+- Sophos note section headers = **Heading** format (style_type=1)
+- User applies Title via **⇧⌘T** to "Preparation" and "Excercice"
+- Notes.app shows Title in Format menu but does NOT save to database
+
+**ROOT CAUSE IDENTIFIED:**
+- **Title** style (⇧⌘T) only works for the first line
+- Applying Title to other lines shows in UI but is NOT persisted
+- **Heading** style (⇧⌘H) = style_type=1, IS persisted
+- This is likely by design, not a bug - Title is meant for first line only
+
+### Implications for Decoder
+
+1. First line should always render as Title (current behavior is correct)
+2. style_type=1 = Heading (NOT Title) - need to fix enum naming
+3. Non-first-line Title formatting cannot be read because it's never saved
 
 ---
 
-## Session 2: Implementation Continuation
+## Session 2: Font Attribute Investigation
 
-### Completed
-- [x] Phase 1: ExportViewModel complete (302 lines)
-  - Queue management (add, remove, toggle, select/deselect, clear)
-  - Export operations (async with progress, cancellation)
-  - Options: format, frontmatter, attachments, JSON metadata
-  - Completion states: idle, success, partial, cancelled, error
-  - Build verified: passing
+### User Question
+> "are you able to look at the font size and other font format to distinguish Titles with normal body?"
 
-### Files Created/Modified
-- Created: `Sources/NotesSearch/ExportViewModel.swift`
-- Modified: `Sources/NotesLib/Export/NotesExporter.swift` (added `exportNoteStyled`)
-- Created: `Sources/NotesSearch/ImportViewModel.swift`
+### Investigation Goal
+Determine if font attributes (size, weight, etc.) are stored in the protobuf and could serve as a heuristic to detect "visual Title" styling even when style_type is not set.
 
-### Phase 2 Complete
-- [x] ImportViewModel.swift (290 lines)
-  - Staging management (add files/folders, remove, toggle, select/deselect, clear)
-  - File/folder pickers with NSOpenPanel
-  - Conflict detection (detectAllConflicts, refreshConflicts)
-  - Import operations (async with progress, cancellation)
-  - Options: defaultFolder, conflictStrategy
-  - Completion states: idle, success, partial, cancelled, error
-  - Build verified: passing
+### Findings
 
-### Phase 3 Complete
-- [x] ImportExportPanel.swift (240 lines)
-  - Tab switching (Export/Import) with badges showing counts
-  - Panel header with close button
-  - Placeholder content for Export/Import tabs (functional)
-  - Integrated into ContentView as collapsible right sidebar
-  - Animation: slide + opacity transition (0.25s)
-  - Toolbar button with badge showing export queue count
-  - Escape key closes panel
-  - Build verified: passing
+**Analyzed Seance 30 note (has Title styled "Preparation" line):**
 
-### Phase 4 Complete
-- [x] ExportTab.swift (340 lines)
-  - Queue list grouped by folder with section headers
-  - Checkbox selection + remove button per item
-  - Select All / Deselect All / Clear Queue menu
-  - Export options: format picker (Markdown/JSON), frontmatter toggle, attachments toggle
-  - Location picker with NSOpenPanel (can create directories)
-  - Export button + progress view with cancel
-  - Completion views: success, partial, cancelled, error states
-  - "Show in Finder" action on success
-  - Removed ExportTabPlaceholder (unused)
+| Run | Text | style_type | FONT WEIGHT | What it means |
+|-----|------|------------|-------------|---------------|
+| 0-10 | "Seance 30..." | 0 (body) | 1 (bold) | First line (treated as title by convention) |
+| 11 | "Preparation" | 0 (body) | 1 (bold) | Title applied via ⇧⌘T but NOT saved as style_type |
+| 13 | "Bonjour" | none | none | Regular body text |
 
-### Phase 5 Complete
-- [x] ImportTab.swift (380 lines)
-  - Empty state with drag-and-drop zone (dashed border, visual feedback)
-  - Staging list grouped by folder with conflict indicators
-  - File/folder picker buttons (Add Files, Add Folder)
-  - Full drag-and-drop support for files and folders
-  - Import options: default folder text field, conflict strategy picker (Skip/Replace/Duplicate)
-  - Conflict strategy descriptions
-  - Progress view with linear progress bar and cancel button
-  - Completion views: success, partial, cancelled, error states
-  - Removed ImportTabPlaceholder (unused)
+**Key Finding:**
+- When Title (⇧⌘T) is applied to non-first-line text:
+  - `style_type` = 0 (body) - NOT saved as title
+  - `FONT WEIGHT` = 1 (bold) - visual styling IS saved
 
-### Phase 6 Complete
-- [x] Search Integration
-  - ResultRowView: Added "+" button (shows on hover, toggles add/remove)
-  - Green checkmark when item is in export queue
-  - Results header with count and "Add All" button
-  - Uses @EnvironmentObject pattern (no SearchViewModel changes needed)
-  - Simplified multi-select: per-row toggle + Add All is cleaner UX
+**Conclusion: Font weight cannot reliably distinguish Title from body**
+- Bold text (FONT WEIGHT=1) could be:
+  1. Title applied to first line (correct)
+  2. Title applied to non-first-line (user's case)
+  3. Manually bolded body text (common)
+- No font size field was observed in the attribute runs
+- We cannot distinguish cases 2 and 3
 
-### Phase 7 Complete
-- [x] Toolbar & Menu
-  - Separate Export/Import buttons in toolbar
-  - Export button shows queue count badge
-  - FocusedValues for menu command integration
-  - ImportExportCommands struct with File menu items:
-    - Export... (⌘E)
-    - Import... (⌘I)
-    - Add to Export Queue (⌘⇧E) - disabled if no selection
-    - Add All Results to Export (⌘⌥E) - disabled if no results
+### Full Protobuf Dump Analysis
 
-### Phase 8 Complete
-- [x] Progress & Feedback (mostly pre-implemented in Phase 4/5)
-  - Progress bar with percentage and current item title ✅
-  - Cancel button during operations ✅
-  - Success/failure/partial/cancelled completion views ✅
-  - "Show in Finder" action on export success ✅
-  - Added "Retry Failed" button for partial failures
-  - Added "Retry" button for complete failures
-  - "Done" clears queue/staging, "Retry" keeps items
+Dumped ALL fields in attribute runs to confirm no hidden size info:
 
-### Phase 9 Complete
-- [x] Polish & Edge Cases
-  - Duplicate detection: Already in ExportViewModel.addToQueue() ✅
-  - Empty queue state: Already in ExportTab/ImportTab ✅
-  - Panel close confirmation: Added alert when closing during operation
-  - Tab switching disabled during operations
-  - Progress spinner in panel header during operations
-  - Long title truncation: lineLimit(1) throughout ✅
-  - Keyboard navigation: SwiftUI List provides basic nav ✅
-  - Escape key blocked during operations (must use X button)
+```
+Sophos note (style_type=1 Heading):
+  f1 [varint]: 25          ← length
+  f2 [msg]:                ← paragraph_style
+    f1 [varint]: 1         ← style_type = Heading
+    f3 [varint]: 1         ← unknown flag
+    f9 [uuid]: ...         ← replica ID
+  f5 [varint]: 1           ← font_weight (bold)
+  f13 [varint]: ...        ← timestamp
 
-### Phase 10 Complete
-- [x] Testing
-  - ViewModels in executable target → not directly unit testable
-  - Created comprehensive manual testing checklist: `docs/testing/IMPORT_EXPORT_UI_TESTS.md`
-  - Covers: Export queue, Import staging, Panel behavior, Keyboard shortcuts
-  - Covers: Edge cases, round-trip tests, error handling
-  - Integration tests require Full Disk Access + real Apple Notes
+Seance note (Title applied to first line):
+  f1 [varint]: 7           ← length
+  f2 [msg]:                ← paragraph_style
+    f1 [varint]: 0         ← style_type = Body
+    f9 [uuid]: ...         ← replica ID
+  f5 [varint]: 1           ← font_weight (bold)
+```
 
-### Files Created
-- Created: `docs/testing/IMPORT_EXPORT_UI_TESTS.md` (comprehensive manual test checklist)
+**Confirmed: NO font size field exists.** Only `style_type` determines visual size (applied via CSS rendering).
+
+### Enum Rename Completed
+
+Changed `NoteStyleType` to properly reflect Apple Notes' protobuf values:
+
+| Old Name | New Name | Raw Value | Meaning |
+|----------|----------|-----------|---------|
+| title | heading | 1 | Section header (⇧⌘H) |
+| heading | subheading | 2 | Second-level header |
+| subheading | subheading2 | 3 | Third-level header |
+| (new) | title | -2 | First line (inferred, not from protobuf) |
+
+Files updated:
+- `Decoder.swift` - main enum definition + switch statement
+- `Encoder.swift` - local enum + markdown parsing logic
+- `MarkdownFormatter.swift` - export switch statement
+
+Tests: ✅ All pass (EncoderDecoderTests)
 
 ---
 
-## Bug Fixes & Enhancements (Post-Phase 10)
+---
 
-### SQLite Thread Safety Fix
-- `SearchIndex.rebuildInBackground()` now creates fresh NotesDatabase for background thread
-- `buildIndex()` accepts optional database parameter for thread-safe rebuilding
-- Fixed crash on app launch
+## Session 3: Font Size/Name Discovery & Implementation
 
-### Search Filtering Enhancement
-- **Source type filters**: Toggle Title/Content/AI results visibility
-- **Multi-folder filter**: Select one or more folders to search within
-- **Filter bar UI**: Added below search bar with toggles and folder dropdown
-- **Result count**: Shows "X of Y results" when filters active
-- **Add All**: Now adds only visible (filtered) results to export queue
+### What Happened
+User challenged previous finding that "font size is not stored" - created test note with 18pt text and Skia font.
 
-### Files Modified
-- `Sources/NotesLib/Search/SearchIndex.swift` (thread-safe background rebuild)
-- `Sources/NotesSearch/SearchViewModel.swift` (filter properties and logic)
-- `Sources/NotesSearch/ContentView.swift` (SearchFilterBar, FilterToggle views)
+### Key Discovery
+**Font size and font name ARE stored!** Previous analysis missed this because:
+1. Field 3 can be EITHER a message (for font size) OR a string (for font name)
+2. Didn't have test notes with explicit font customization
+
+### Findings
+- Font size: `f3.f2` as 32-bit float (e.g., 18.0)
+- Font name: `f3` as string (e.g., "\nSkia-Regular")
+- Title (⇧⌘T) on non-first-line: Confirmed NOT stored (still body, no font attributes)
+
+### Commits Made
+1. `c66431b` - Rename NoteStyleType: title→heading to match Apple Notes protobuf
+2. `144e6cd` - Add font size and font name parsing to attribute runs
+
+### Implementation
+- Added `parseFontInfo()` function to Decoder.swift
+- `AttributeRun` now includes `fontSize: Float?` and `fontName: String?`
+- HTML rendering generates inline styles for custom fonts
+- Tests pass
 
 ---
 
-## Goal-14 COMPLETE ✅
+## Session 4: MAJOR BREAKTHROUGH - Title Style Discovery
 
-All 10 phases implemented:
-1. ✅ Export Queue Infrastructure (ExportViewModel)
-2. ✅ Import Staging Infrastructure (ImportViewModel)
-3. ✅ Panel UI Shell (ImportExportPanel)
-4. ✅ Export Tab UI (ExportTab)
-5. ✅ Import Tab UI (ImportTab)
-6. ✅ Search Integration (+ button, Add All)
-7. ✅ Toolbar & Menu (shortcuts, FocusedValues)
-8. ✅ Progress & Feedback (retry buttons)
-9. ✅ Polish & Edge Cases (close confirmation)
-10. ✅ Testing (manual checklist)
+### What Happened
+User challenged our finding by showing iPhone screenshot where Title styling was visible on a non-first-line. This proved Title styling IS being synced, so it MUST be stored somewhere.
 
-### Files Created (Goal-14)
-- `Sources/NotesSearch/ExportViewModel.swift`
-- `Sources/NotesSearch/ImportViewModel.swift`
-- `Sources/NotesSearch/ImportExportPanel.swift`
-- `Sources/NotesSearch/ExportTab.swift`
-- `Sources/NotesSearch/ImportTab.swift`
-- `docs/testing/IMPORT_EXPORT_UI_TESTS.md`
+### The Investigation
+1. Compared Mac UI - also shows "Title" checked in Format menu
+2. Dumped raw protobuf bytes for Title-styled lines vs body lines
+3. Discovered the key difference: **presence vs absence** of f2.f1 field
 
-### Files Modified (Goal-14)
-- `Sources/NotesSearch/NotesSearchApp.swift`
-- `Sources/NotesSearch/ContentView.swift`
-- `Sources/NotesLib/Export/NotesExporter.swift`
+### The Discovery
 
----
+**We had the encoding backwards!**
 
-## Session 3: Folder Filter Refinement (Resumed)
+| Protobuf | Old interpretation | CORRECT interpretation |
+|----------|--------------------|-----------------------|
+| f2.f1 = 0 | Body | **Title** |
+| f2.f1 absent | (unknown) | **Body** |
 
-### Context Recovery
-- Previous session ended abruptly ("Prompt is too long")
-- User tested multiple folder filter styles: Chips, Popover, Expandable list, Style switcher
-- User feedback: All felt "bloated" in the sidebar
-- User requested: Simple folder filter button → click reveals minimal tree view
+Title (⇧⌘T) DOES save style_type=0 to the database! Body is when the field is **omitted entirely**.
 
-### Current Implementation
-- `FolderFilterButton`: Compact button with folder icon + count badge
-- `FolderTreePopover`: 180px wide popover with hierarchical folder tree
-- `FolderNodeView`: Recursive tree node with expand/collapse chevrons
-- Clear button in header when filter is active
+### Code Changes
+- **Decoder.swift**: Swapped `body = 0` to `title = 0`, `body = -2` (sentinel for absent field)
+- **Encoder.swift**:
+  - Title writes `style_type=0` explicitly
+  - Body omits the field entirely (passes `nil`)
+- Tests: All pass
 
-### Folder Sorting & Account Support
-- User requested folder order to match Notes app + account filter + show all notes
-- Added `Database.listAccounts()` to get all accounts
-- Added `Database.listFoldersWithAccounts()` with account info
-- Sorting: Group by account → "Notes" first → others by Z_PK → "Recently Deleted" last
-- Added SearchViewModel: `availableAccounts`, `selectedAccounts`, `showAllNotes`, `allNotes`
-- Added UI: "All" toggle, AccountFilterButton with popover, folders grouped by account
-
-### UI Changes (Final)
-- All notes shown by default when search is empty (no toggle needed)
-- Source filters appear only when searching
-- Account filter (only visible with multiple accounts)
-- Folder filter grouped by account
-- Trash button to show/hide deleted notes
-- Refresh button with spin animation (⌘R)
-- Quick tooltips on hover (~400ms delay)
-
-### Database Changes
-- `listAccounts()` - get all accounts
-- `listFoldersWithAccounts()` - folders with account info, excludes deleted/empty
-- `listNotes(includeDeleted:)` - filter deleted notes by default
-- Folder sorting: "Notes" first, others by creation order, "Recently Deleted" excluded
-
-### Session Complete
-- All features tested and working
+### Impact
+- Title styling now correctly detected on ANY line
+- Previous "first-line-only Title" hypothesis was WRONG
+- Notes.app works as expected - we just misread the protobuf
 
 ---
 
 ## 5-Question Reboot Check
 | Question | Answer |
 |----------|--------|
-| Where am I? | Goal-14 COMPLETE, post-polish iteration |
-| Where am I going? | User testing folder filter UI |
-| What's the goal? | Clean, minimal folder filter |
-| What have I learned? | User prefers minimalism over features |
-| What have I done? | Folder tree popover implementation |
+| Where am I? | Goal-15 COMPLETE - major discovery made |
+| Where am I going? | Commit the fix, archive Goal-15 |
+| What's the goal? | Fix Title/Heading detection (DONE!) |
+| What have I learned? | style_type=0 means Title, absence means Body |
+| What have I done? | Fixed Decoder + Encoder, all tests pass |
