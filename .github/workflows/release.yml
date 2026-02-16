@@ -45,6 +45,9 @@ jobs:
           # Add build keychain to search list (prepend so it's found first)
           security list-keychains -d user -s $KEYCHAIN_PATH $(security list-keychains -d user | tr -d '"')
 
+      - name: Inject version into source
+        run: sed -i '' "s/static let version = \"dev\"/static let version = \"${{ steps.version.outputs.version }}\"/" Sources/claude-notes-bridge/Version.swift
+
       - name: Build release binaries
         run: |
           swift build -c release --product claude-notes-bridge

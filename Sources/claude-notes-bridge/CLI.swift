@@ -63,7 +63,7 @@ struct NotesBridge: AsyncParsableCommand {
 
             Requires Full Disk Access permission in System Settings > Privacy & Security.
             """,
-        version: "0.2.0",
+        version: AppInfo.version,
         subcommands: [
             Serve.self,
             Setup.self,
