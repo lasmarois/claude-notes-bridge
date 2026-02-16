@@ -159,7 +159,7 @@ public class NotesDatabase {
                 let data = Data(bytes: blob, count: Int(length))
                 // Decode with styling for HTML
                 var styledContent = try decoder.decodeStyled(data)
-                content = styledContent.text
+                content = stripLeadingTitle(styledContent.text, title: title)
 
                 // Fetch tables if requested (skip during indexing for performance)
                 if includeTables {
@@ -1474,6 +1474,53 @@ public class NotesDatabase {
             let error = db.map { String(cString: sqlite3_errmsg($0)) } ?? "Unknown error"
             throw NotesError.cannotOpenDatabase(error)
         }
+    }
+
+    /// Look up a note's UUID (ZIDENTIFIER) by its Z_PK (primary key).
+    /// Used to resolve x-coredata IDs (which contain the Z_PK) to UUIDs after note creation.
+    public func getNoteIdentifier(pk: Int64) throws -> String? {
+        try ensureOpen()
+
+        let query = "SELECT ZIDENTIFIER FROM ZICCLOUDSYNCINGOBJECT WHERE Z_PK = ? AND Z_ENT = 12 LIMIT 1"
+
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(db, query, -1, &statement, nil) == SQLITE_OK else {
+            throw NotesError.queryFailed(String(cString: sqlite3_errmsg(db)))
+        }
+        defer { sqlite3_finalize(statement) }
+
+        sqlite3_bind_int64(statement, 1, pk)
+
+        guard sqlite3_step(statement) == SQLITE_ROW else {
+            return nil
+        }
+
+        return columnString(statement, 0)
+    }
+
+    /// Strip the leading title line from protobuf-decoded content if it matches the note title.
+    /// Apple Notes stores the title as the first paragraph of the body, but we already return it
+    /// as a separate `title` field — so strip it from `content` to avoid duplication.
+    private func stripLeadingTitle(_ text: String, title: String) -> String {
+        let lines = text.components(separatedBy: "\n")
+        guard let firstLine = lines.first else { return text }
+
+        let trimmedFirst = firstLine.trimmingCharacters(in: .whitespaces)
+        let trimmedTitle = title.trimmingCharacters(in: .whitespaces)
+
+        guard !trimmedFirst.isEmpty,
+              trimmedFirst.lowercased() == trimmedTitle.lowercased() else {
+            return text
+        }
+
+        // Skip the title line and any immediately following blank lines
+        var startIndex = 1
+        while startIndex < lines.count &&
+              lines[startIndex].trimmingCharacters(in: .whitespaces).isEmpty {
+            startIndex += 1
+        }
+
+        return lines[startIndex...].joined(separator: "\n")
     }
 
     private func columnString(_ statement: OpaquePointer?, _ index: Int32) -> String? {

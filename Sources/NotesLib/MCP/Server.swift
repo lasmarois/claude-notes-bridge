@@ -501,7 +501,19 @@ public actor MCPServer {
                 let folder = arguments["folder"] as? String
                 // Use AppleScript for reliable CloudKit-compatible creation with markdown→HTML conversion
                 let noteResult = try notesAS.createNote(title: title, body: body, folder: folder)
-                result = ["id": noteResult.id, "title": title, "folder": folder ?? "Notes"]
+
+                // Resolve the x-coredata ID to a UUID so callers can use it with read_note
+                var noteId: String = noteResult.id
+                // x-coredata://DB-UUID/ICNote/p{Z_PK} — extract Z_PK from the last component
+                if let lastSlash = noteResult.id.lastIndex(of: "/"),
+                   let pk = Int64(String(noteResult.id[noteResult.id.index(after: lastSlash)...].dropFirst())) {
+                    // dropFirst() removes the "p" prefix from "p1234"
+                    if let uuid = try? notesDB.getNoteIdentifier(pk: pk) {
+                        noteId = uuid
+                    }
+                }
+
+                result = ["id": noteId, "title": title, "folder": folder ?? "Notes"]
             case "update_note":
                 guard let id = arguments["id"] as? String else {
                     throw NotesError.missingParameter("id")
