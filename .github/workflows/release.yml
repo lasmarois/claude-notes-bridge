@@ -127,8 +127,14 @@ jobs:
               --install-location / \
               --identifier com.lasmarois.claude-notes-bridge.ui \
               --version "$VERSION" \
-              --no-relocate \
-              .build/ui.pkg
+              .build/ui-raw.pkg
+
+          # Strip <relocate> block — pkgbuild auto-adds it for app bundles,
+          # which causes the installer to find existing copies by bundle ID
+          # and install there instead of /Applications
+          pkgutil --expand .build/ui-raw.pkg .build/ui-expanded
+          sed -i '' '/<relocate>/,/<\/relocate>/d' .build/ui-expanded/PackageInfo
+          pkgutil --flatten .build/ui-expanded .build/ui.pkg
 
           # Update version in distribution.xml
           sed "s/version=\"0.0.0\"/version=\"$VERSION\"/g" installer/distribution.xml > .build/distribution.xml
