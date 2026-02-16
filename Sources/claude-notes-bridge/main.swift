@@ -66,6 +66,7 @@ struct NotesBridge: AsyncParsableCommand {
         version: "0.2.0",
         subcommands: [
             Serve.self,
+            Setup.self,
             Search.self,
             List.self,
             Read.self,
@@ -95,6 +96,132 @@ struct Serve: AsyncParsableCommand {
         // Start MCP server
         let server = MCPServer()
         await server.run()
+    }
+}
+
+// MARK: - Setup Command
+
+struct Setup: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        abstract: "Configure Claude Code integration",
+        discussion: """
+            Sets up the Apple Notes MCP server for Claude Code.
+
+            This command will:
+            1. Check Full Disk Access permissions
+            2. Register the MCP server with Claude Code
+            3. Verify the configuration
+
+            Run this after installing via .pkg, or anytime you need to reconfigure.
+            """
+    )
+
+    func run() throws {
+        print(TerminalStyle.title("Claude Notes Bridge — Setup\n"))
+
+        // Step 1: Check Full Disk Access
+        print("Checking Full Disk Access...")
+        let hasFDA = Permissions.hasFullDiskAccess()
+        if hasFDA {
+            print(TerminalStyle.success("Full Disk Access granted"))
+        } else {
+            print(TerminalStyle.warning("Full Disk Access not granted"))
+            print("  The MCP server needs Full Disk Access to read your Notes database.")
+            print("  Open: System Settings > Privacy & Security > Full Disk Access")
+            print("  Or run: open 'x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles'")
+        }
+
+        // Step 2: Find claude CLI
+        print("\nLooking for Claude Code CLI...")
+        guard let claudePath = findClaudeCLI() else {
+            print(TerminalStyle.error("Claude Code CLI not found"))
+            print("  Install Claude Code first: https://claude.ai/download")
+            print("  Then re-run: claude-notes-bridge setup")
+            throw ExitCode.notFound
+        }
+        print(TerminalStyle.success("Found: \(claudePath)"))
+
+        // Step 3: Determine binary path for MCP config
+        let installedPath = "/usr/local/bin/claude-notes-bridge"
+        let servePath: String
+        if FileManager.default.fileExists(atPath: installedPath) {
+            servePath = installedPath
+        } else {
+            // Fall back to current executable location
+            let currentExe = URL(fileURLWithPath: ProcessInfo.processInfo.arguments[0])
+                .resolvingSymlinksInPath().path
+            servePath = currentExe
+        }
+
+        // Step 4: Register MCP server
+        print("\nRegistering MCP server...")
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: claudePath)
+        process.arguments = ["mcp", "add", "apple-notes", "--scope", "user", "--", servePath, "serve"]
+
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = pipe
+
+        try process.run()
+        process.waitUntilExit()
+
+        if process.terminationStatus == 0 {
+            print(TerminalStyle.success("MCP server registered with Claude Code"))
+        } else {
+            let output = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+            print(TerminalStyle.error("Failed to register MCP server"))
+            if !output.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                print("  \(output.trimmingCharacters(in: .whitespacesAndNewlines))")
+            }
+            print("\n  Manual setup:")
+            print("  \(claudePath) mcp add apple-notes --scope user -- \(servePath) serve")
+            throw ExitCode.generalError
+        }
+
+        // Step 5: Summary
+        print("\n\(TerminalStyle.title("Setup complete!"))")
+        print("  The \(TerminalStyle.cyan)apple-notes\(TerminalStyle.reset) MCP server is now available in Claude Code.")
+        if !hasFDA {
+            print("\n\(TerminalStyle.warning("Remember to grant Full Disk Access before using."))")
+        }
+    }
+
+    private func findClaudeCLI() -> String? {
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        let candidates = [
+            "/usr/local/bin/claude",
+            "\(home)/.local/bin/claude",
+            "\(home)/.claude/bin/claude",
+            "/opt/homebrew/bin/claude",
+            "/usr/bin/claude",
+        ]
+
+        for path in candidates {
+            if FileManager.default.isExecutableFile(atPath: path) {
+                return path
+            }
+        }
+
+        // Fall back to `which`
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/which")
+        process.arguments = ["claude"]
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = Pipe()
+        try? process.run()
+        process.waitUntilExit()
+
+        if process.terminationStatus == 0 {
+            let output = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8)?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            if let path = output, !path.isEmpty {
+                return path
+            }
+        }
+
+        return nil
     }
 }
 

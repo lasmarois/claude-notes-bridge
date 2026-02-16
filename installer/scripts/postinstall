@@ -4,9 +4,44 @@
 xattr -dr com.apple.quarantine /usr/local/bin/claude-notes-bridge 2>/dev/null
 xattr -dr com.apple.quarantine /Applications/NotesSearch.app 2>/dev/null
 
-# Auto-configure MCP for Claude Code (if claude CLI is available)
-if command -v claude &>/dev/null; then
-    claude mcp add apple-notes --scope user -- /usr/local/bin/claude-notes-bridge serve 2>/dev/null
+# --- MCP Auto-Configuration ---
+# postinstall runs as root, so we need to find the actual console user
+
+CONSOLE_USER=$(stat -f '%Su' /dev/console 2>/dev/null)
+if [ -z "$CONSOLE_USER" ] || [ "$CONSOLE_USER" = "root" ]; then
+    CONSOLE_USER=$(scutil <<< "show State:/Users/ConsoleUser" | awk '/Name :/ { print $3 }')
+fi
+
+if [ -z "$CONSOLE_USER" ] || [ "$CONSOLE_USER" = "root" ] || [ "$CONSOLE_USER" = "loginwindow" ]; then
+    echo "Note: Could not detect console user. Run 'claude-notes-bridge setup' to configure Claude Code."
+    exit 0
+fi
+
+CONSOLE_HOME=$(eval echo "~$CONSOLE_USER")
+
+# Find claude CLI in common locations
+CLAUDE_BIN=""
+for candidate in \
+    "/usr/local/bin/claude" \
+    "$CONSOLE_HOME/.local/bin/claude" \
+    "$CONSOLE_HOME/.claude/bin/claude" \
+    "/opt/homebrew/bin/claude" \
+    "/usr/bin/claude"; do
+    if [ -x "$candidate" ]; then
+        CLAUDE_BIN="$candidate"
+        break
+    fi
+done
+
+if [ -n "$CLAUDE_BIN" ]; then
+    # Run MCP config as the console user (not root)
+    if sudo -u "$CONSOLE_USER" "$CLAUDE_BIN" mcp add apple-notes --scope user -- /usr/local/bin/claude-notes-bridge serve 2>&1; then
+        echo "MCP server 'apple-notes' registered with Claude Code."
+    else
+        echo "Note: Auto-configuration failed. Run 'claude-notes-bridge setup' to configure manually."
+    fi
+else
+    echo "Note: Claude Code CLI not found. Run 'claude-notes-bridge setup' after installing Claude Code."
 fi
 
 exit 0
