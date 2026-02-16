@@ -94,11 +94,13 @@ jobs:
               --root .build/pkg-payload-cli \
               --identifier com.lasmarois.claude-notes-bridge.cli \
               --version "$VERSION" \
+              --install-location / \
               --scripts installer/scripts \
               .build/cli.pkg
 
           pkgbuild \
               --root .build/pkg-payload-ui \
+              --install-location / \
               --identifier com.lasmarois.claude-notes-bridge.ui \
               --version "$VERSION" \
               .build/ui.pkg
