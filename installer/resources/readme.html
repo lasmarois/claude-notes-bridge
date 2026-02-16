@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <style>
+        body { font-family: -apple-system, Helvetica Neue, sans-serif; padding: 20px; }
+        h2 { font-size: 18px; margin-top: 24px; }
+        p, li { font-size: 14px; line-height: 1.5; color: #333; }
+        code { background: #f0f0f0; padding: 2px 6px; border-radius: 4px; font-size: 13px; }
+        pre { background: #f0f0f0; padding: 12px; border-radius: 8px; font-size: 13px; overflow-x: auto; }
+        .step { margin-bottom: 16px; }
+        .step-number { font-weight: bold; color: #007aff; }
+    </style>
+</head>
+<body>
+    <h2>Setup Instructions</h2>
+
+    <div class="step">
+        <p><span class="step-number">Step 1:</span> Grant Full Disk Access</p>
+        <p>The bridge reads Apple Notes' database directly and needs Full Disk Access:</p>
+        <ol>
+            <li>Open <strong>System Settings</strong> &gt; <strong>Privacy &amp; Security</strong> &gt; <strong>Full Disk Access</strong></li>
+            <li>Click the <strong>+</strong> button</li>
+            <li>Add your terminal app (Terminal, iTerm2, or Warp) for the CLI tool</li>
+            <li>Add <strong>NotesSearch.app</strong> from /Applications for the search app</li>
+        </ol>
+    </div>
+
+    <div class="step">
+        <p><span class="step-number">Step 2:</span> Configure Claude Code (CLI users)</p>
+        <p>The installer will try to configure this automatically. If it doesn't, run:</p>
+        <pre>claude mcp add apple-notes --scope user -- /usr/local/bin/claude-notes-bridge serve</pre>
+        <p>Or add manually to your project's <code>.mcp.json</code>:</p>
+        <pre>{
+  "mcpServers": {
+    "apple-notes": {
+      "command": "/usr/local/bin/claude-notes-bridge",
+      "args": ["serve"]
+    }
+  }
+}</pre>
+    </div>
+
+    <div class="step">
+        <p><span class="step-number">Step 3:</span> Verify</p>
+        <pre>claude-notes-bridge --version
+claude-notes-bridge list --limit 3</pre>
+    </div>
+</body>
+</html>

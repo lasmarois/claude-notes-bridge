@@ -1,0 +1,12 @@
+#!/bin/bash
+
+# Remove quarantine attribute (downloaded from internet)
+xattr -dr com.apple.quarantine /usr/local/bin/claude-notes-bridge 2>/dev/null
+xattr -dr com.apple.quarantine /Applications/NotesSearch.app 2>/dev/null
+
+# Auto-configure MCP for Claude Code (if claude CLI is available)
+if command -v claude &>/dev/null; then
+    claude mcp add apple-notes --scope user -- /usr/local/bin/claude-notes-bridge serve 2>/dev/null
+fi
+
+exit 0

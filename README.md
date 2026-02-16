@@ -22,7 +22,17 @@ Built in Swift. Zero runtime dependencies. Works with iCloud sync.
 
 ## Quick Start
 
-### 1. Build
+### 1. Install
+
+#### Option A: Download (Recommended)
+
+Download the latest `.pkg` installer from [GitHub Releases](https://github.com/lasmarois/claude-notes-bridge/releases/latest).
+
+The installer includes both the CLI tool and the Notes Search app. Open the `.pkg` and follow the prompts.
+
+> **Note:** The binary is built for Apple Silicon (ARM64). Intel Macs should build from source.
+
+#### Option B: Build from Source
 
 ```bash
 git clone https://github.com/lasmarois/claude-notes-bridge.git

@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<installer-gui-script minSpecVersion="2">
+    <title>Claude Notes Bridge</title>
+    <welcome file="welcome.html" />
+    <readme file="readme.html" />
+
+    <options customize="allow" require-scripts="false" />
+
+    <choices-outline>
+        <line choice="cli" />
+        <line choice="ui" />
+    </choices-outline>
+
+    <choice id="cli"
+            title="CLI Tool (MCP Server)"
+            description="Command-line tool and MCP server for Claude Code integration. Installs to /usr/local/bin."
+            selected="true"
+            enabled="true">
+        <pkg-ref id="com.lasmarois.claude-notes-bridge.cli" />
+    </choice>
+
+    <choice id="ui"
+            title="Notes Search App"
+            description="SwiftUI search application for browsing and searching Apple Notes. Installs to /Applications."
+            selected="true"
+            enabled="true">
+        <pkg-ref id="com.lasmarois.claude-notes-bridge.ui" />
+    </choice>
+
+    <pkg-ref id="com.lasmarois.claude-notes-bridge.cli"
+             version="0.0.0"
+             onConclusion="none">cli.pkg</pkg-ref>
+
+    <pkg-ref id="com.lasmarois.claude-notes-bridge.ui"
+             version="0.0.0"
+             onConclusion="none">ui.pkg</pkg-ref>
+</installer-gui-script>
