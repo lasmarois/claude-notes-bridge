@@ -15,7 +15,7 @@ public actor MiniLMEmbeddings {
 
     public init() throws {
         // Load the compiled Core ML model
-        guard let modelURL = Bundle.module.url(forResource: "all-MiniLM-L6-v2", withExtension: "mlmodelc") else {
+        guard let modelURL = Bundle.notesLibBundle.url(forResource: "all-MiniLM-L6-v2", withExtension: "mlmodelc") else {
             throw MiniLMError.modelNotFound
         }
 

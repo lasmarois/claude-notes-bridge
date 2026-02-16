@@ -61,6 +61,7 @@ jobs:
           mkdir -p .build/NotesSearch.app/Contents/MacOS
           mkdir -p .build/NotesSearch.app/Contents/Resources
           cp .build/release/notes-search .build/NotesSearch.app/Contents/MacOS/NotesSearch
+          cp -R .build/release/claude-notes-bridge_NotesLib.bundle .build/NotesSearch.app/Contents/Resources/
 
           # Compile Liquid Glass icon (light/dark/tinted via Icon Composer)
           xcrun actool Resources/NotesSearch.icon \

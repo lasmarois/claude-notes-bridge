@@ -13,7 +13,7 @@ public class BertTokenizer {
     private let idsToTokens: [Int: String]
 
     public init() throws {
-        guard let url = Bundle.module.url(forResource: "bert_tokenizer_vocab", withExtension: "txt") else {
+        guard let url = Bundle.notesLibBundle.url(forResource: "bert_tokenizer_vocab", withExtension: "txt") else {
             throw TokenizerError.vocabFileNotFound
         }
         let vocabTxt = try String(contentsOf: url)
