@@ -46,7 +46,7 @@ jobs:
               --app-icon AppIcon \
               --output-partial-info-plist .build/partial-info.plist \
               --platform macosx \
-              --minimum-deployment-target 13.0
+              --minimum-deployment-target 15.0
 
           cat > .build/NotesSearch.app/Contents/Info.plist << 'PLIST'
           <?xml version="1.0" encoding="UTF-8"?>
