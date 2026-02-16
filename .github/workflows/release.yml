@@ -127,6 +127,7 @@ jobs:
               --install-location / \
               --identifier com.lasmarois.claude-notes-bridge.ui \
               --version "$VERSION" \
+              --no-relocate \
               .build/ui.pkg
 
           # Update version in distribution.xml
