@@ -11,3 +11,7 @@ CLAUDE.local.md
 
 # Planning files that may contain sensitive info
 *.local.md
+
+# Throwaway scripts in repo root
+/dump_*.swift
+/test_*.swift
