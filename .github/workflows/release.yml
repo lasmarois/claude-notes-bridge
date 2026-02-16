@@ -24,13 +24,35 @@ jobs:
       - name: Test
         run: swift test --filter "EncoderDecoderTests|PermissionsTests|MarkdownConverterTests|BertTokenizerTests"
 
+      - name: Import signing certificate
+        env:
+          SIGNING_CERT_BASE64: ${{ secrets.SIGNING_CERT_BASE64 }}
+          SIGNING_CERT_PASSWORD: ${{ secrets.SIGNING_CERT_PASSWORD }}
+        run: |
+          CERT_PATH=$RUNNER_TEMP/cert.p12
+          KEYCHAIN_PATH=$RUNNER_TEMP/build.keychain-db
+
+          echo -n "$SIGNING_CERT_BASE64" | base64 --decode -o $CERT_PATH
+
+          security create-keychain -p "" $KEYCHAIN_PATH
+          security set-keychain-settings $KEYCHAIN_PATH
+          security unlock-keychain -p "" $KEYCHAIN_PATH
+
+          security import $CERT_PATH -k $KEYCHAIN_PATH -P "$SIGNING_CERT_PASSWORD" \
+              -T /usr/bin/codesign -T /usr/bin/security
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "" $KEYCHAIN_PATH
+
+          # Add build keychain to search list (prepend so it's found first)
+          security list-keychains -d user -s $KEYCHAIN_PATH $(security list-keychains -d user | tr -d '"')
+
       - name: Build release binaries
         run: |
           swift build -c release --product claude-notes-bridge
           swift build -c release --product notes-search
 
-      - name: Package CLI zip
+      - name: Sign and package CLI zip
         run: |
+          codesign --force --sign "NotesSearch Dev" .build/release/claude-notes-bridge
           cd .build/release
           zip claude-notes-bridge.zip claude-notes-bridge
 
@@ -40,13 +62,15 @@ jobs:
           mkdir -p .build/NotesSearch.app/Contents/Resources
           cp .build/release/notes-search .build/NotesSearch.app/Contents/MacOS/NotesSearch
 
-          # Compile Asset Catalog (light/dark/tinted icon variants)
-          xcrun actool Resources/Assets.xcassets \
+          # Compile Liquid Glass icon (light/dark/tinted via Icon Composer)
+          xcrun actool Resources/NotesSearch.icon \
               --compile .build/NotesSearch.app/Contents/Resources \
-              --app-icon AppIcon \
+              --app-icon NotesSearch \
+              --include-all-app-icons \
+              --target-device mac \
               --output-partial-info-plist .build/partial-info.plist \
               --platform macosx \
-              --minimum-deployment-target 15.0
+              --minimum-deployment-target 26.0
 
           cat > .build/NotesSearch.app/Contents/Info.plist << 'PLIST'
           <?xml version="1.0" encoding="UTF-8"?>
@@ -70,13 +94,13 @@ jobs:
               <key>LSUIElement</key>
               <false/>
               <key>CFBundleIconFile</key>
-              <string>AppIcon</string>
+              <string>NotesSearch</string>
               <key>CFBundleIconName</key>
-              <string>AppIcon</string>
+              <string>NotesSearch</string>
           </dict>
           </plist>
           PLIST
-          codesign --force --deep --sign - .build/NotesSearch.app
+          codesign --force --deep --sign "NotesSearch Dev" .build/NotesSearch.app
 
       - name: Build .pkg installer
         run: |

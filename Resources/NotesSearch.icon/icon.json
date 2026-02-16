@@ -1,0 +1,45 @@
+{
+  "fill" : "system-light",
+  "groups" : [
+    {
+      "layers" : [
+        {
+          "fill-specializations" : [
+            {
+              "appearance" : "dark",
+              "value" : {
+                "solid" : "extended-gray:1.00000,1.00000"
+              }
+            }
+          ],
+          "image-name" : "Image 34.png",
+          "name" : "Image 34",
+          "position" : {
+            "scale" : 2,
+            "translation-in-points" : [
+              14.734375,
+              137.8125
+            ]
+          }
+        },
+        {
+          "image-name" : "test.001 4.png",
+          "name" : "test.001 4"
+        }
+      ],
+      "shadow" : {
+        "kind" : "neutral",
+        "opacity" : 0.5
+      },
+      "translucency" : {
+        "enabled" : true,
+        "value" : 0.5
+      }
+    }
+  ],
+  "supported-platforms" : {
+    "squares" : [
+      "macOS"
+    ]
+  }
+}
