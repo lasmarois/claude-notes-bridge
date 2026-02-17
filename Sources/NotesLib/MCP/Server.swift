@@ -22,8 +22,9 @@ public actor MCPServer {
 
             do {
                 let request = try JSONDecoder().decode(JSONRPCRequest.self, from: data)
-                let response = await handleRequest(request)
-                try writeResponse(response)
+                if let response = await handleRequest(request) {
+                    try writeResponse(response)
+                }
             } catch {
                 let errorResponse = JSONRPCResponse(
                     jsonrpc: "2.0",
@@ -36,13 +37,13 @@ public actor MCPServer {
         }
     }
 
-    private func handleRequest(_ request: JSONRPCRequest) async -> JSONRPCResponse {
+    private func handleRequest(_ request: JSONRPCRequest) async -> JSONRPCResponse? {
         switch request.method {
         case "initialize":
             return handleInitialize(request)
         case "notifications/initialized":
-            // Client acknowledges initialization - no response needed
-            return JSONRPCResponse(jsonrpc: "2.0", id: request.id, result: .null, error: nil)
+            // Notifications get no response per JSON-RPC spec
+            return nil
         case "tools/list":
             return handleToolsList(request)
         case "tools/call":
@@ -60,7 +61,7 @@ public actor MCPServer {
     private func handleInitialize(_ request: JSONRPCRequest) -> JSONRPCResponse {
         initialized = true
         let result: [String: Any] = [
-            "protocolVersion": "2024-11-05",
+            "protocolVersion": "2025-11-25",
             "capabilities": [
                 "tools": [:]
             ],
